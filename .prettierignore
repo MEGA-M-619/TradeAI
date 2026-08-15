@@ -1,0 +1,12 @@
+.next
+node_modules
+lib/generated
+coverage
+prisma/migrations/**/*.sql
+test-results
+playwright-report
+
+# Reference docs installed by `prisma init`, not project source.
+.agents
+.claude/skills
+.windsurf

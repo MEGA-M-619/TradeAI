@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint-typecheck-test:
+    runs-on: ubuntu-latest
+    env:
+      # Placeholder values so `prisma generate` and unit tests that don't
+      # need a live database can run without real secrets. Real
+      # Supabase credentials go in repo/environment secrets below, once
+      # available, for the security-test job.
+      DATABASE_URL: "postgresql://app_user:placeholder@localhost:6543/postgres?pgbouncer=true"
+      DIRECT_URL: "postgresql://postgres:placeholder@localhost:5432/postgres"
+      NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run db:generate
+      - run: npm test
+
+  security-tests:
+    runs-on: ubuntu-latest
+    # Only runs once real Supabase credentials are configured as repo
+    # secrets (Settings -> Secrets and variables -> Actions). Until then
+    # this job is a no-op rather than a false-green: RUN_DB_SECURITY_TESTS
+    # is only set here, and tests/security/* skip entirely without it.
+    if: ${{ vars.SECURITY_TESTS_READY == 'true' }}
+    needs: lint-typecheck-test
+    env:
+      RUN_DB_SECURITY_TESTS: "true"
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate:status
+      - run: npm run test:security
