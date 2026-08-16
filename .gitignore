@@ -46,3 +46,6 @@ next-env.d.ts
 # playwright
 /test-results/
 /playwright-report/
+
+# claude code session runtime state (machine-specific pid/session id)
+/.claude/scheduled_tasks.lock

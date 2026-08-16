@@ -2,6 +2,7 @@
 // Phase 0: tenant/authentication foundation (organizations, users,
 // organization_memberships).
 // Phase 1 adds: customers, jobs.
+// Phase 2 adds: evidence (job photos).
 // Every other domain table is added in later phases per the approved
 // architecture.
 
@@ -36,6 +37,7 @@ model Organization {
   memberships OrganizationMembership[]
   customers   Customer[]
   jobs        Job[]
+  evidence    Evidence[]
 
   @@map("organizations")
 }
@@ -53,8 +55,10 @@ model User {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships OrganizationMembership[]
-  jobsCreated Job[]
+  memberships      OrganizationMembership[]
+  jobsCreated      Job[]
+  evidenceUploaded Evidence[]              @relation("EvidenceUploadedBy")
+  evidenceDeleted  Evidence[]              @relation("EvidenceDeletedBy")
 
   @@map("users")
 }
@@ -124,8 +128,73 @@ model Job {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
   createdBy    User         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  evidence     Evidence[]
 
   @@index([organizationId])
   @@index([customerId])
   @@map("jobs")
+}
+
+/// Only `photo` is implemented in Phase 2. The discriminator exists from
+/// the start because this table is the home for measurements and
+/// documents too -- adding the column later would mean migrating the
+/// meaning of existing rows, not just adding an enum value.
+enum EvidenceKind {
+  photo
+
+  @@map("evidence_kind")
+}
+
+/// Direct-to-storage upload makes the database row and the stored bytes
+/// two separate writes that can diverge. The row is created `pending`
+/// before the client uploads and is only moved to `ready` by the confirm
+/// endpoint, so a failure leaves a reapable row rather than an invisible
+/// orphaned object. Only `ready` rows are ever shown.
+enum EvidenceUploadStatus {
+  pending
+  ready
+
+  @@map("evidence_upload_status")
+}
+
+/// A photo (later: measurement/document) attached to a job.
+///
+/// Deletion is deliberately asymmetric: the Storage object is hard-deleted
+/// (these are photos inside a customer's home -- privacy and storage cost
+/// are both real), but the row is tombstoned via deletedAt/deletedByUserId
+/// so a later AI assessment that cited this evidence can say "this was
+/// deleted" instead of dangling against a missing id.
+model Evidence {
+  id               String               @id @db.Uuid
+  organizationId   String               @map("organization_id") @db.Uuid
+  jobId            String               @map("job_id") @db.Uuid
+  uploadedByUserId String               @map("uploaded_by_user_id") @db.Uuid
+  kind             EvidenceKind         @default(photo)
+  uploadStatus     EvidenceUploadStatus @default(pending) @map("upload_status")
+  /// Server-derived, never client-supplied: `{organizationId}/{jobId}/{id}`.
+  /// The storage RLS policies re-validate this exact shape independently.
+  storageKey       String               @unique @map("storage_key")
+  mimeType         String               @map("mime_type")
+  byteSize         Int?                 @map("byte_size")
+  width            Int?
+  height           Int?
+  /// Client-asserted, not server-verified -- with direct-to-storage upload
+  /// the server never sees the bytes. Named as a claim on purpose, matching
+  /// the app's fact-vs-inference discipline.
+  clientSha256     String?              @map("client_sha256")
+  caption          String?
+  capturedAt       DateTime?            @map("captured_at") @db.Timestamptz(6)
+  deletedAt        DateTime?            @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId  String?              @map("deleted_by_user_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  uploadedBy   User         @relation("EvidenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  deletedBy    User?        @relation("EvidenceDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@map("evidence")
 }

@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { withAuthenticatedOrgContext } from "@/lib/auth/session";
 import { jobRepository } from "@/lib/db/repositories/jobRepository";
 import { customerRepository } from "@/lib/db/repositories/customerRepository";
-import { CreateJobForm } from "@/components/CreateJobForm";
+import { JobsPageContent } from "@/components/jobs/JobsPageContent";
 
 export default async function JobsPage({
   params,
@@ -23,26 +22,11 @@ export default async function JobsPage({
   );
 
   return (
-    <div>
-      <h1>Jobs</h1>
-      {jobs.length === 0 ? (
-        <p>No jobs yet.</p>
-      ) : (
-        <ul>
-          {jobs.map((job) => (
-            <li key={job.id}>
-              <Link href={`/orgs/${orgId}/jobs/${job.id}`}>{job.title}</Link> —{" "}
-              {job.customer.name} ({job.status})
-            </li>
-          ))}
-        </ul>
-      )}
-      <h2>Create a job</h2>
-      <CreateJobForm
-        orgId={orgId}
-        customers={customers}
-        initialCustomerId={customerId}
-      />
-    </div>
+    <JobsPageContent
+      orgId={orgId}
+      jobs={jobs}
+      customers={customers}
+      initialCustomerId={customerId}
+    />
   );
 }

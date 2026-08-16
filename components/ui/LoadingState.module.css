@@ -1,0 +1,66 @@
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.skeletonCard {
+  height: 88px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-secondary);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.skeletonCard + .skeletonCard {
+  margin-top: var(--space-4);
+}
+
+.skeletonLine {
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-secondary);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.skeletonLine + .skeletonLine {
+  margin-top: var(--space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonCard,
+  .skeletonLine {
+    animation: none;
+  }
+}
+
+.spinnerWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) 0;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.6s;
+  }
+}

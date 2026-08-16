@@ -17,9 +17,15 @@ export type CustomerInput = {
  * bootstrapping case, so there is no exception here.
  */
 export const customerRepository = {
+  /**
+   * Includes a job count per customer (`_count.jobs`) -- a plain
+   * aggregate on the existing relation, not a schema change -- so the
+   * customers list can show "3 jobs" without a second query per row.
+   */
   async listForOrg(tx: TenantTxClient, orgId: string) {
     return tx.customer.findMany({
       where: { organizationId: orgId },
+      include: { _count: { select: { jobs: true } } },
       orderBy: { createdAt: "desc" },
     });
   },

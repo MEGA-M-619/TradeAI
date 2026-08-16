@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { FormField, Input, Select, Textarea, Button, ErrorState } from "@/components/ui";
+import formStyles from "./forms.module.css";
 
 type CustomerOption = { id: string; name: string };
 
@@ -9,10 +11,12 @@ export function CreateJobForm({
   orgId,
   customers,
   initialCustomerId,
+  onCreated,
 }: {
   orgId: string;
   customers: CustomerOption[];
   initialCustomerId?: string;
+  onCreated?: () => void;
 }) {
   const router = useRouter();
   const [customerId, setCustomerId] = useState(
@@ -39,22 +43,26 @@ export function CreateJobForm({
         return;
       }
       const { job } = await response.json();
+      onCreated?.();
       router.push(`/orgs/${orgId}/jobs/${job.id}`);
-      router.refresh();
     } finally {
       setSubmitting(false);
     }
   }
 
   if (customers.length === 0) {
-    return <p>Add a customer first before creating a job.</p>;
+    return (
+      <p>
+        Add a customer first, then come back here to create a job for them.
+      </p>
+    );
   }
 
   return (
     <form onSubmit={handleSubmit}>
-      <label>
-        Customer
-        <select
+      <FormField label="Customer" htmlFor="job-customer" required>
+        <Select
+          id="job-customer"
           required
           value={customerId}
           onChange={(e) => setCustomerId(e.target.value)}
@@ -64,28 +72,34 @@ export function CreateJobForm({
               {customer.name}
             </option>
           ))}
-        </select>
-      </label>
-      <label>
-        Title
-        <input
+        </Select>
+      </FormField>
+      <FormField label="Job title" htmlFor="job-title" required>
+        <Input
+          id="job-title"
           required
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="No power to kitchen outlets"
         />
-      </label>
-      <label>
-        Problem description
-        <textarea
+      </FormField>
+      <FormField
+        label="Problem description"
+        htmlFor="job-description"
+        hint="What the customer told you, in their words."
+      >
+        <Textarea
+          id="job-description"
           value={problemDescription}
           onChange={(e) => setProblemDescription(e.target.value)}
         />
-      </label>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? "Creating..." : "Create job"}
-      </button>
+      </FormField>
+      {error && <ErrorState title="Could not create job" description={error} />}
+      <div className={formStyles.actions}>
+        <Button type="submit" variant="primary" loading={submitting} loadingText="Creating...">
+          Create job
+        </Button>
+      </div>
     </form>
   );
 }

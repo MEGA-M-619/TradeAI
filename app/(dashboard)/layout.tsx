@@ -1,20 +1,21 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import {
   ensureCurrentUserProfile,
   UnauthenticatedError,
 } from "@/lib/auth/session";
-import { SignOutButton } from "@/components/SignOutButton";
+import { organizationRepository } from "@/lib/db/repositories/organizationRepository";
+import { AppShell } from "@/components/shell/AppShell";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  let userId: string;
   try {
     // Also provisions the users profile row on first authenticated visit
     // -- see lib/auth/session.ts.
-    await ensureCurrentUserProfile();
+    userId = await ensureCurrentUserProfile();
   } catch (error) {
     if (error instanceof UnauthenticatedError) {
       redirect("/login");
@@ -22,21 +23,7 @@ export default async function DashboardLayout({
     throw error;
   }
 
-  return (
-    <div>
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "0.75rem 1rem",
-          borderBottom: "1px solid var(--foreground)",
-        }}
-      >
-        <Link href="/orgs">TradeAI</Link>
-        <SignOutButton />
-      </header>
-      <main style={{ padding: "1rem" }}>{children}</main>
-    </div>
-  );
+  const organizations = await organizationRepository.listForUser(userId);
+
+  return <AppShell organizations={organizations}>{children}</AppShell>;
 }

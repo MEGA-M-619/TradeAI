@@ -84,19 +84,21 @@ test.describe("customer + job creation flow", () => {
 
     await expect(page).toHaveURL(/\/orgs$/);
 
-    await page.getByLabel("New organization name").fill(orgName);
-    await page.getByRole("button", { name: "Create organization" }).click();
+    await page.getByLabel("Business name").fill(orgName);
+    await page.getByRole("button", { name: "Get started" }).click();
 
-    await expect(page).toHaveURL(/\/orgs\/[0-9a-f-]+$/);
-    orgId = page.url().split("/orgs/")[1];
+    await expect(page).toHaveURL(/\/orgs\/[0-9a-f-]+\/jobs$/);
+    orgId = page.url().split("/orgs/")[1].split("/")[0];
 
-    await page.getByRole("link", { name: "Customers" }).click();
+    await page.getByRole("link", { name: "Customers", exact: true }).click();
+    await page.getByRole("button", { name: "+ New Customer" }).click();
     await page.getByLabel("Name").fill(customerName);
     await page.getByRole("button", { name: "Add customer" }).click();
     await expect(page.getByRole("link", { name: customerName })).toBeVisible();
 
-    await page.getByRole("link", { name: "Jobs" }).click();
-    await page.getByLabel("Title").fill(jobTitle);
+    await page.getByRole("link", { name: "Jobs", exact: true }).click();
+    await page.getByRole("button", { name: "+ New Job" }).click();
+    await page.getByLabel("Job title").fill(jobTitle);
     await page.getByRole("button", { name: "Create job" }).click();
 
     await expect(page.getByRole("heading", { name: jobTitle })).toBeVisible();

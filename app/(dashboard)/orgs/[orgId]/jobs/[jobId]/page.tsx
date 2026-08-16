@@ -1,8 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { withAuthenticatedOrgContext } from "@/lib/auth/session";
 import { jobRepository } from "@/lib/db/repositories/jobRepository";
-import { JobDetailForm } from "@/components/JobDetailForm";
+import { evidenceRepository } from "@/lib/db/repositories/evidenceRepository";
+import { createEvidenceDownloadUrls } from "@/lib/storage/evidenceStorage";
+import { MAX_EVIDENCE_PER_JOB } from "@/lib/validation/evidence";
+import { JobWorkspace } from "@/components/jobs/JobWorkspace";
+import type { EvidenceItem } from "@/components/jobs/EvidenceSection";
 
 export default async function JobDetailPage({
   params,
@@ -10,24 +13,40 @@ export default async function JobDetailPage({
   params: Promise<{ orgId: string; jobId: string }>;
 }) {
   const { orgId, jobId } = await params;
-  const job = await withAuthenticatedOrgContext(orgId, (tx, ctx) =>
-    jobRepository.getById(tx, ctx.orgId, jobId),
+  const { job, evidence } = await withAuthenticatedOrgContext(
+    orgId,
+    async (tx, ctx) => {
+      const job = await jobRepository.getById(tx, ctx.orgId, jobId);
+      if (!job) return { job: null, evidence: [] };
+      const evidence = await evidenceRepository.listForJob(tx, ctx.orgId, jobId);
+      return { job, evidence };
+    },
   );
 
   if (!job) {
     notFound();
   }
 
+  // Signed URLs are minted per render and expire quickly, so they are
+  // produced here rather than stored. Batched into a single Storage call
+  // for the whole grid.
+  const urls = await createEvidenceDownloadUrls(evidence.map((e) => e.storageKey));
+
+  const evidenceItems: EvidenceItem[] = evidence.map((e) => ({
+    id: e.id,
+    caption: e.caption,
+    width: e.width,
+    height: e.height,
+    createdAt: e.createdAt.toISOString(),
+    url: urls.get(e.storageKey) ?? null,
+  }));
+
   return (
-    <div>
-      <h1>{job.title}</h1>
-      <p>
-        Customer:{" "}
-        <Link href={`/orgs/${orgId}/customers/${job.customer.id}`}>
-          {job.customer.name}
-        </Link>
-      </p>
-      <JobDetailForm orgId={orgId} job={job} />
-    </div>
+    <JobWorkspace
+      orgId={orgId}
+      job={job}
+      evidence={evidenceItems}
+      evidenceLimit={MAX_EVIDENCE_PER_JOB}
+    />
   );
 }

@@ -3,8 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/auth/supabaseBrowserClient";
+import { Button, type ButtonVariant } from "@/components/ui/Button";
 
-export function SignOutButton() {
+export function SignOutButton({
+  variant = "secondary",
+  fullWidth,
+}: {
+  variant?: ButtonVariant;
+  fullWidth?: boolean;
+}) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
@@ -21,8 +28,15 @@ export function SignOutButton() {
   }
 
   return (
-    <button type="button" onClick={handleSignOut} disabled={submitting}>
-      {submitting ? "Signing out..." : "Sign out"}
-    </button>
+    <Button
+      type="button"
+      variant={variant}
+      fullWidth={fullWidth}
+      onClick={handleSignOut}
+      loading={submitting}
+      loadingText="Signing out..."
+    >
+      Sign out
+    </Button>
   );
 }

@@ -2,8 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { FormField, Input, Button, ErrorState } from "@/components/ui";
+import formStyles from "./forms.module.css";
 
-export function CreateCustomerForm({ orgId }: { orgId: string }) {
+export function CreateCustomerForm({
+  orgId,
+  onCreated,
+}: {
+  orgId: string;
+  onCreated?: () => void;
+}) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -29,6 +37,7 @@ export function CreateCustomerForm({ orgId }: { orgId: string }) {
       setName("");
       setPhone("");
       setEmail("");
+      onCreated?.();
       router.refresh();
     } finally {
       setSubmitting(false);
@@ -37,30 +46,36 @@ export function CreateCustomerForm({ orgId }: { orgId: string }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <label>
-        Name
-        <input
+      <FormField label="Name" htmlFor="customer-name" required>
+        <Input
+          id="customer-name"
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-      </label>
-      <label>
-        Phone
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-      </label>
-      <label>
-        Email
-        <input
+      </FormField>
+      <FormField label="Phone" htmlFor="customer-phone">
+        <Input
+          id="customer-phone"
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+        />
+      </FormField>
+      <FormField label="Email" htmlFor="customer-email">
+        <Input
+          id="customer-email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
-      </label>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? "Adding..." : "Add customer"}
-      </button>
+      </FormField>
+      {error && <ErrorState title="Could not add customer" description={error} />}
+      <div className={formStyles.actions}>
+        <Button type="submit" variant="primary" loading={submitting} loadingText="Adding...">
+          Add customer
+        </Button>
+      </div>
     </form>
   );
 }

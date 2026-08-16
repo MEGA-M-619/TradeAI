@@ -1,0 +1,43 @@
+.welcomeWrap {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--space-8);
+}
+
+.welcomeCard {
+  width: 100%;
+  max-width: 420px;
+}
+
+.welcomeTitle {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-2);
+}
+
+.welcomeSubtitle {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-5);
+}
+
+.title {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-2);
+}
+
+.subtitle {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-5);
+}
+
+.list {
+  margin-bottom: var(--space-8);
+}
+
+.createCard {
+  max-width: 420px;
+}
+
+.createTitle {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-4);
+}

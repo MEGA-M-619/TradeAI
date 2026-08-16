@@ -1,0 +1,5 @@
+.wrap {
+  max-width: 32rem;
+  margin: var(--space-10) auto;
+  padding: 0 var(--space-4);
+}

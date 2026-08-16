@@ -1,0 +1,42 @@
+.toolbar {
+  margin-bottom: var(--space-5);
+}
+
+.formCard {
+  margin-bottom: var(--space-5);
+}
+
+.formCardHeader {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-4);
+}
+
+.customerCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.customerInfo {
+  min-width: 0;
+  flex: 1;
+}
+
+.customerName {
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.customerContact {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customerJobCount {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}

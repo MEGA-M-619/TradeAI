@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   getAuthenticatedUserId,
@@ -24,14 +23,8 @@ export default async function OrgLayout({
     throw error;
   }
 
-  return (
-    <div>
-      <nav style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-        <Link href={`/orgs/${orgId}/customers`}>Customers</Link>
-        <Link href={`/orgs/${orgId}/jobs`}>Jobs</Link>
-        <Link href="/orgs">Switch organization</Link>
-      </nav>
-      {children}
-    </div>
-  );
+  // Navigation lives in AppShell (app/(dashboard)/layout.tsx), which
+  // reads the current org from the URL -- this layout's only job is the
+  // membership check above.
+  return children;
 }

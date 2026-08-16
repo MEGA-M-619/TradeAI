@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { withAuthenticatedOrgContext } from "@/lib/auth/session";
 import { customerRepository } from "@/lib/db/repositories/customerRepository";
-import { CreateCustomerForm } from "@/components/CreateCustomerForm";
+import { CustomersPageContent } from "@/components/customers/CustomersPageContent";
 
 export default async function CustomersPage({
   params,
@@ -13,24 +12,5 @@ export default async function CustomersPage({
     customerRepository.listForOrg(tx, ctx.orgId),
   );
 
-  return (
-    <div>
-      <h1>Customers</h1>
-      {customers.length === 0 ? (
-        <p>No customers yet.</p>
-      ) : (
-        <ul>
-          {customers.map((customer) => (
-            <li key={customer.id}>
-              <Link href={`/orgs/${orgId}/customers/${customer.id}`}>
-                {customer.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-      <h2>Add a customer</h2>
-      <CreateCustomerForm orgId={orgId} />
-    </div>
-  );
+  return <CustomersPageContent orgId={orgId} customers={customers} />;
 }

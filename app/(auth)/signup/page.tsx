@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/auth/supabaseBrowserClient";
+import { FormField, Input, Button, ErrorState } from "@/components/ui";
+import { AuthShell } from "@/components/auth/AuthShell";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -42,33 +44,44 @@ export default function SignupPage() {
 
   if (checkEmail) {
     return (
-      <main style={{ maxWidth: 360, margin: "4rem auto", padding: "0 1rem" }}>
-        <h1>Check your email</h1>
+      <AuthShell title="Check your email">
         <p>
-          We sent a confirmation link to {email}. Follow it to finish signing
-          up.
+          We sent a confirmation link to <strong>{email}</strong>. Follow it to
+          finish setting up your account.
         </p>
-      </main>
+      </AuthShell>
     );
   }
 
   return (
-    <main style={{ maxWidth: 360, margin: "4rem auto", padding: "0 1rem" }}>
-      <h1>Sign up</h1>
+    <AuthShell
+      title="Sign up"
+      subtitle="Manage your electrical jobs from the field."
+      footer={
+        <>
+          Already have an account? <Link href="/login">Log in</Link>
+        </>
+      }
+    >
       <form onSubmit={handleSubmit}>
-        <label>
-          Email
-          <input
+        <FormField label="Email" htmlFor="signup-email" required>
+          <Input
+            id="signup-email"
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
           />
-        </label>
-        <label>
-          Password
-          <input
+        </FormField>
+        <FormField
+          label="Password"
+          htmlFor="signup-password"
+          required
+          hint="At least 8 characters."
+        >
+          <Input
+            id="signup-password"
             type="password"
             required
             minLength={8}
@@ -76,15 +89,20 @@ export default function SignupPage() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
           />
-        </label>
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? "Signing up..." : "Sign up"}
-        </button>
+        </FormField>
+        {error && <ErrorState title="Could not sign up" description={error} />}
+        <div style={{ marginTop: "var(--space-5)" }}>
+          <Button
+            type="submit"
+            variant="primary"
+            fullWidth
+            loading={submitting}
+            loadingText="Signing up..."
+          >
+            Sign up
+          </Button>
+        </div>
       </form>
-      <p>
-        Already have an account? <Link href="/login">Log in</Link>
-      </p>
-    </main>
+    </AuthShell>
   );
 }

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/auth/supabaseBrowserClient";
+import { FormField, Input, Button, ErrorState } from "@/components/ui";
+import { AuthShell } from "@/components/auth/AuthShell";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,37 +36,49 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ maxWidth: 360, margin: "4rem auto", padding: "0 1rem" }}>
-      <h1>Log in</h1>
+    <AuthShell
+      title="Log in"
+      subtitle="Manage your electrical jobs from the field."
+      footer={
+        <>
+          No account? <Link href="/signup">Sign up</Link>
+        </>
+      }
+    >
       <form onSubmit={handleSubmit}>
-        <label>
-          Email
-          <input
+        <FormField label="Email" htmlFor="login-email" required>
+          <Input
+            id="login-email"
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
           />
-        </label>
-        <label>
-          Password
-          <input
+        </FormField>
+        <FormField label="Password" htmlFor="login-password" required>
+          <Input
+            id="login-password"
             type="password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
           />
-        </label>
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? "Logging in..." : "Log in"}
-        </button>
+        </FormField>
+        {error && <ErrorState title="Could not log in" description={error} />}
+        <div style={{ marginTop: "var(--space-5)" }}>
+          <Button
+            type="submit"
+            variant="primary"
+            fullWidth
+            loading={submitting}
+            loadingText="Logging in..."
+          >
+            Log in
+          </Button>
+        </div>
       </form>
-      <p>
-        No account? <Link href="/signup">Sign up</Link>
-      </p>
-    </main>
+    </AuthShell>
   );
 }

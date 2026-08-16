@@ -4,9 +4,9 @@ import nextTs from "eslint-config-next/typescript";
 
 // Tenant isolation depends on two chokepoints never being bypassed:
 //   1. Tenant-scoped Prisma models (organization, user,
-//      organizationMembership) are only ever queried through
-//      lib/db/repositories/*, which always run inside a tenant-scoped
-//      transaction.
+//      organizationMembership, customer, job, evidence) are only ever
+//      queried through lib/db/repositories/*, which always run inside a
+//      tenant-scoped transaction.
 //   2. withTenantContext (the thing that actually sets the Postgres
 //      session-local org/user context) is only ever called from
 //      lib/auth/session.ts and lib/db/repositories/*, both of which are
@@ -21,8 +21,12 @@ const tenantIsolationRules = [
       "no-restricted-syntax": [
         "error",
         {
+          // customer/job were missing here until Phase 2 -- the rule was
+          // added in Phase 0 and never extended when Phase 1 introduced
+          // those two tenant tables, so the chokepoint was documented but
+          // unenforced for them. Backfilled along with evidence.
           selector:
-            "MemberExpression[object.name='prisma'][property.name=/^(organization|user|organizationMembership)$/]",
+            "MemberExpression[object.name='prisma'][property.name=/^(organization|user|organizationMembership|customer|job|evidence)$/]",
           message:
             "Tenant-scoped Prisma models must only be accessed through lib/db/repositories/*. See lib/db/tenantContext.ts.",
         },
