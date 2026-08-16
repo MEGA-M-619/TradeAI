@@ -77,6 +77,30 @@ export const evidenceRepository = {
     });
   },
 
+  /**
+   * Batch lookup for assessment creation: only `ready`, non-tombstoned
+   * evidence belonging to this exact org+job is returned, and rows for
+   * ids that don't qualify are simply absent from the result -- callers
+   * (see assessmentRepository) must check the returned count against the
+   * requested id count rather than assume a 1:1 match.
+   */
+  async listByIdsForJob(
+    tx: TenantTxClient,
+    orgId: string,
+    jobId: string,
+    evidenceIds: string[],
+  ) {
+    return tx.evidence.findMany({
+      where: {
+        id: { in: evidenceIds },
+        organizationId: orgId,
+        jobId,
+        uploadStatus: "ready",
+        deletedAt: null,
+      },
+    });
+  },
+
   async create(tx: TenantTxClient, orgId: string, data: EvidenceCreateInput) {
     const { id, jobId, uploadedByUserId, storageKey, mimeType, caption } = data;
     return tx.evidence.create({

@@ -103,3 +103,47 @@ export async function withAuthenticatedOrgContext<T>(
     fn(tx, { userId, orgId }),
   );
 }
+
+/**
+ * Resumes an already-authorized flow without a live user session. The
+ * only legitimate caller is the Phase 3 AI-assessment executor
+ * (lib/ai/executor.ts): it runs deployment-agnostically and may be
+ * triggered with no incoming user request at all (an external cron, a
+ * queue drain, a retry), so getAuthenticatedUserId() -- which reads the
+ * *current request's* session cookie -- is not available to it.
+ *
+ * The (userId, orgId) pair here is not a fresh, unverified client claim:
+ * it is the identity that was already verified once, via the normal
+ * authenticated flow, at the moment the assessment was created (see
+ * AiAssessment.requestedByUserId). This function re-verifies that
+ * membership still holds -- not because RLS depends on it (RLS
+ * independently re-derives membership via is_member_of() on every query
+ * regardless of what identity the app layer resumes with, so a
+ * membership revoked between creation and execution still fails closed
+ * at the SQL layer either way) -- but so that case produces a clear,
+ * categorized failure here instead of a confusing zero-rows/P2025 result
+ * deep inside the executor.
+ *
+ * Must never be exposed to a route that accepts a client-supplied userId.
+ */
+export async function withResumedOrgContext<T>(
+  userId: string,
+  orgId: string,
+  fn: (
+    tx: TenantTxClient,
+    ctx: { userId: string; orgId: string },
+  ) => Promise<T>,
+): Promise<T> {
+  const membership = await withTenantContext({ userId, orgId: null }, (tx) =>
+    tx.organizationMembership.findFirst({
+      where: { userId, organizationId: orgId },
+      select: { id: true },
+    }),
+  );
+  if (!membership) {
+    throw new ForbiddenOrgAccessError();
+  }
+  return withTenantContext({ userId, orgId }, (tx) =>
+    fn(tx, { userId, orgId }),
+  );
+}

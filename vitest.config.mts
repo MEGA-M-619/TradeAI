@@ -16,6 +16,13 @@ export default defineConfig({
     // not reliably enough for those. Purely local/unit tests finish in
     // milliseconds either way, so a higher ceiling costs nothing there.
     testTimeout: 20_000,
+    // Same reasoning as testTimeout, applied to beforeAll/afterAll: the
+    // Phase 3 assessment fixtures do considerably more setup per file
+    // (multiple users, a full org/job/evidence chain, a real Storage
+    // upload, a persisted assessment with findings/citations/tests) than
+    // earlier security suites, and vitest's hookTimeout is a *separate*
+    // 10s default that testTimeout does not cover.
+    hookTimeout: 20_000,
     // Test files run one at a time. Every tests/security/* file opens its
     // own privileged pg pool and its own Prisma transactions against the
     // same live Supabase project, and Test 7 in tenant-isolation

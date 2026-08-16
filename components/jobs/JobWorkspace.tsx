@@ -16,6 +16,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { EvidenceSection, type EvidenceItem } from "./EvidenceSection";
+import { AssessmentSection, type AssessmentSummary } from "./AssessmentSection";
 import styles from "./JobWorkspace.module.css";
 
 type JobStatus = "open" | "in_progress" | "completed";
@@ -38,11 +39,15 @@ export function JobWorkspace({
   job,
   evidence,
   evidenceLimit,
+  assessments,
+  maxAssessmentImages,
 }: {
   orgId: string;
   job: Job;
   evidence: EvidenceItem[];
   evidenceLimit: number;
+  assessments: AssessmentSummary[];
+  maxAssessmentImages: number;
 }) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -153,8 +158,7 @@ export function JobWorkspace({
             turns a customer's account into something observed. It manages
             its own uploads and is not part of this form's save -- every
             control inside it is type="button" -- so photos persist
-            immediately rather than waiting on "Save changes". A future AI
-            Assessment section would slot in right after it. */}
+            immediately rather than waiting on "Save changes". */}
         <EvidenceSection
           orgId={orgId}
           jobId={job.id}
@@ -162,8 +166,20 @@ export function JobWorkspace({
           limit={evidenceLimit}
         />
 
-        {/* Job details: administrative fields. A future Materials/Quote
-            section would slot in after this, before a closing Timeline. */}
+        {/* AI Assessment: reviews the technician's chosen evidence and
+            proposes observations/hypotheses for the technician to confirm
+            or reject. Also manages its own requests/polling independently
+            of this form's save. A future Materials/Quote section would
+            slot in after Job details, before a closing Timeline. */}
+        <AssessmentSection
+          orgId={orgId}
+          jobId={job.id}
+          evidence={evidence}
+          initialAssessments={assessments}
+          maxImages={maxAssessmentImages}
+        />
+
+        {/* Job details: administrative fields. */}
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Job details</h2>
           <Card>

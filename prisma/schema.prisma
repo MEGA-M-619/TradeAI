@@ -3,6 +3,7 @@
 // organization_memberships).
 // Phase 1 adds: customers, jobs.
 // Phase 2 adds: evidence (job photos).
+// Phase 3 adds: AI/vision-assisted assessment.
 // Every other domain table is added in later phases per the approved
 // architecture.
 
@@ -34,10 +35,13 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships OrganizationMembership[]
-  customers   Customer[]
-  jobs        Job[]
-  evidence    Evidence[]
+  memberships        OrganizationMembership[]
+  customers          Customer[]
+  jobs               Job[]
+  evidence           Evidence[]
+  aiAssessments      AiAssessment[]
+  technicianVerdicts TechnicianVerdict[]
+  aiUsageLedger      AiUsageLedger[]
 
   @@map("organizations")
 }
@@ -55,10 +59,12 @@ model User {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships      OrganizationMembership[]
-  jobsCreated      Job[]
-  evidenceUploaded Evidence[]              @relation("EvidenceUploadedBy")
-  evidenceDeleted  Evidence[]              @relation("EvidenceDeletedBy")
+  memberships          OrganizationMembership[]
+  jobsCreated          Job[]
+  evidenceUploaded     Evidence[]               @relation("EvidenceUploadedBy")
+  evidenceDeleted      Evidence[]               @relation("EvidenceDeletedBy")
+  assessmentsRequested AiAssessment[]           @relation("AssessmentRequestedBy")
+  verdictsGiven        TechnicianVerdict[]      @relation("VerdictCreatedBy")
 
   @@map("users")
 }
@@ -115,20 +121,21 @@ enum JobStatus {
 }
 
 model Job {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId      String    @map("organization_id") @db.Uuid
-  customerId          String    @map("customer_id") @db.Uuid
-  createdByUserId     String    @map("created_by_user_id") @db.Uuid
-  title               String
-  problemDescription  String?   @map("problem_description")
-  status              JobStatus @default(open)
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  customerId         String    @map("customer_id") @db.Uuid
+  createdByUserId    String    @map("created_by_user_id") @db.Uuid
+  title              String
+  problemDescription String?   @map("problem_description")
+  status             JobStatus @default(open)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  createdBy    User         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy    User           @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
   evidence     Evidence[]
+  assessments  AiAssessment[]
 
   @@index([organizationId])
   @@index([customerId])
@@ -189,12 +196,347 @@ model Evidence {
   createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  job          Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  uploadedBy   User         @relation("EvidenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
-  deletedBy    User?        @relation("EvidenceDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job              Job                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  uploadedBy       User                @relation("EvidenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  deletedBy        User?               @relation("EvidenceDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  assessmentInputs AiAssessmentInput[]
 
   @@index([organizationId])
   @@index([jobId])
   @@map("evidence")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: AI/vision-assisted assessment.
+//
+// The governing rule for everything below: the model produces inferences,
+// never facts. Every table is explicitly tagged in its own comment as either
+// DETERMINISTIC (application-owned, testable, a bug if wrong) or INFERENCE
+// (model-proposed, always attributed, never authoritative). A technician
+// verdict is its own table, not a mutation of a finding, so both survive
+// independently and permanently -- confirming or rejecting a hypothesis
+// never rewrites what the model actually said.
+//
+// See docs/architecture/ai-assessment.md for the full design rationale,
+// including why citation integrity is enforced by a database constraint
+// (ai_assessment_citation's composite FK into ai_assessment_input) rather
+// than by application validation alone.
+
+enum AssessmentStatus {
+  queued
+  running
+  complete
+  insufficient_evidence
+  failed
+
+  @@map("assessment_status")
+}
+
+enum AssessmentModelTier {
+  standard
+  escalation
+
+  @@map("assessment_model_tier")
+}
+
+enum AssessmentFailureCategory {
+  quota_exceeded
+  sha_mismatch
+  model_error
+  schema_violation
+  citation_violation
+  timeout
+  unknown
+
+  @@map("assessment_failure_category")
+}
+
+enum FindingKind {
+  observation
+  hypothesis
+
+  @@map("finding_kind")
+}
+
+enum ConfidenceLevel {
+  low
+  medium
+  high
+
+  @@map("confidence_level")
+}
+
+enum SafetySeverity {
+  advisory
+  mandatory
+  stop_work
+
+  @@map("safety_severity")
+}
+
+enum VerdictKind {
+  confirmed
+  rejected
+  amended
+  unresolved
+
+  @@map("verdict_kind")
+}
+
+/// DETERMINISTIC. One assessment run against a job's selected evidence.
+/// Append-only: re-running creates a new row with the next `version` for
+/// this job (see @@unique([jobId, version])) -- this row is never mutated
+/// again once it leaves queued/running. `rawResponse` is retained verbatim
+/// even on failure so a bad run can be diagnosed without re-calling the
+/// model. `claimedAt` exists so a stuck `running` row can be identified and
+/// reaped (see the reap_stuck_ai_assessments() function in the RLS
+/// migration) without a separate job-queue table.
+model AiAssessment {
+  id                  String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId      String                     @map("organization_id") @db.Uuid
+  jobId               String                     @map("job_id") @db.Uuid
+  requestedByUserId   String                     @map("requested_by_user_id") @db.Uuid
+  version             Int
+  status              AssessmentStatus           @default(queued)
+  /// The technician's evidence selection, recorded at request time (a
+  /// verified, authorized, deterministic act) as plain ids -- before the
+  /// executor has fetched or verified any bytes. This is a handoff field
+  /// only: once ai_assessment_input rows exist for this assessment they
+  /// are the source of truth for what was actually sent to the model.
+  /// Kept permanently for audit (what was *requested* vs. what actually
+  /// got verified and used).
+  selectedEvidenceIds String[]                   @default([]) @map("selected_evidence_ids")
+  modelTier           AssessmentModelTier        @default(standard) @map("model_tier")
+  /// Exact model ID used, e.g. "claude-sonnet-5" -- stored verbatim, never
+  /// inferred from modelTier, so a provider default change doesn't silently
+  /// rewrite history.
+  modelId             String                     @map("model_id")
+  promptVersion       String                     @map("prompt_version")
+  schemaVersion       String                     @map("schema_version")
+  modelParams         Json?                      @map("model_params")
+  inputTokens         Int?                       @map("input_tokens")
+  outputTokens        Int?                       @map("output_tokens")
+  latencyMs           Int?                       @map("latency_ms")
+  stopReason          String?                    @map("stop_reason")
+  /// Verbatim provider response. Never rendered to end users directly --
+  /// exists for debugging and reproducibility, not for display.
+  rawResponse         Json?                      @map("raw_response")
+  insufficientReason  String?                    @map("insufficient_reason")
+  failureCategory     AssessmentFailureCategory? @map("failure_category")
+  errorMessage        String?                    @map("error_message")
+  claimedAt           DateTime?                  @map("claimed_at") @db.Timestamptz(6)
+  completedAt         DateTime?                  @map("completed_at") @db.Timestamptz(6)
+  createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            Job                         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  requestedBy    User                        @relation("AssessmentRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  inputs         AiAssessmentInput[]
+  findings       AiAssessmentFinding[]
+  questions      AiAssessmentQuestion[]
+  safetyWarnings AiAssessmentSafetyWarning[]
+  usageLedger    AiUsageLedger[]
+
+  @@unique([jobId, version])
+  @@index([organizationId])
+  @@index([jobId])
+  @@index([status, claimedAt])
+  @@map("ai_assessment")
+}
+
+/// DETERMINISTIC. The exact evidence sent to the model for one run, with
+/// the ordinal reference (E1..E8) shown to the model instead of a database
+/// id, and the sha256 the server itself computed after fetching the bytes
+/// (see lib/storage/evidenceStorage.ts) -- never the client's unverified
+/// claim. This snapshot is the anchor that makes citation integrity
+/// possible: ai_assessment_citation can only reference an
+/// (assessmentId, evidenceId) pair that exists here.
+model AiAssessmentInput {
+  assessmentId   String   @map("assessment_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  evidenceId     String   @map("evidence_id") @db.Uuid
+  ordinalRef     String   @map("ordinal_ref")
+  sha256Verified String   @map("sha256_verified")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  assessment AiAssessment           @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  evidence   Evidence               @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  citations  AiAssessmentCitation[]
+
+  @@id([assessmentId, evidenceId])
+  @@unique([assessmentId, ordinalRef])
+  @@index([organizationId])
+  @@map("ai_assessment_input")
+}
+
+/// INFERENCE. One observation or hypothesis from the model. `kind`
+/// discriminates the two: an observation describes what is visible;
+/// a hypothesis proposes an explanation and must carry
+/// `whatWouldChangeMyMind` plus at least one AiAssessmentTest (enforced at
+/// the Zod layer, not by a DB constraint -- see lib/validation/assessment.ts).
+/// `safetyCategories` is a closed vocabulary the deterministic safety layer
+/// (lib/ai/safetyRules.ts) reads to emit warnings; it is data the model
+/// selects from a fixed list, not free text the model writes.
+model AiAssessmentFinding {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assessmentId          String          @map("assessment_id") @db.Uuid
+  organizationId        String          @map("organization_id") @db.Uuid
+  kind                  FindingKind
+  /// Model-facing ref, e.g. "O1" or "H1" -- unique within the assessment,
+  /// used for citation display and for the technician-verdict UI, never a
+  /// database id.
+  ref                   String
+  statement             String
+  confidence            ConfidenceLevel
+  rationale             String
+  whatWouldChangeMyMind String?         @map("what_would_change_my_mind")
+  safetyCategories      String[]        @map("safety_categories")
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  assessment AiAssessment           @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  citations  AiAssessmentCitation[]
+  tests      AiAssessmentTest[]
+  verdict    TechnicianVerdict?
+
+  @@unique([assessmentId, id])
+  @@unique([assessmentId, ref])
+  @@index([organizationId])
+  @@index([assessmentId])
+  @@map("ai_assessment_finding")
+}
+
+/// DB-ENFORCED. The citation-integrity mechanism: a row here can only exist
+/// if (assessmentId, evidenceId) already exists in ai_assessment_input --
+/// i.e. that exact evidence was actually sent to the model in that exact
+/// run. A model-invented evidence id was never in the input snapshot, so
+/// Postgres rejects the insert outright; the persistence step wraps all
+/// writes for one assessment in a single transaction, so one bad citation
+/// fails the whole run rather than partially persisting. See
+/// lib/db/repositories/assessmentRepository.ts persist().
+model AiAssessmentCitation {
+  assessmentId   String @map("assessment_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  findingId      String @map("finding_id") @db.Uuid
+  evidenceId     String @map("evidence_id") @db.Uuid
+
+  finding AiAssessmentFinding @relation(fields: [assessmentId, findingId], references: [assessmentId, id], onDelete: Cascade)
+  input   AiAssessmentInput   @relation(fields: [assessmentId, evidenceId], references: [assessmentId, evidenceId], onDelete: Cascade)
+
+  @@id([assessmentId, findingId, evidenceId])
+  @@index([organizationId])
+  @@map("ai_assessment_citation")
+}
+
+/// INFERENCE. A discriminating test attached to a hypothesis -- "what would
+/// tell you whether this is right." Required (at the Zod layer) for every
+/// hypothesis so a hypothesis can never be pure assertion.
+model AiAssessmentTest {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assessmentId       String   @map("assessment_id") @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
+  findingId          String   @map("finding_id") @db.Uuid
+  test               String
+  rulesInIfPositive  String   @map("rules_in_if_positive")
+  rulesOutIfNegative String   @map("rules_out_if_negative")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding AiAssessmentFinding @relation(fields: [assessmentId, findingId], references: [assessmentId, id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assessmentId])
+  @@map("ai_assessment_test")
+}
+
+/// INFERENCE. A follow-up question the model would ask the technician.
+/// Phase 3 only captures these as structured output -- answering one and
+/// re-assessing from the answer is the Phase 3.5 multi-turn loop.
+model AiAssessmentQuestion {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assessmentId       String   @map("assessment_id") @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
+  question           String
+  whyItMatters       String   @map("why_it_matters")
+  answersWouldRuleIn String[] @map("answers_would_rule_in")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  assessment AiAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assessmentId])
+  @@map("ai_assessment_question")
+}
+
+/// DETERMINISTIC. A mandatory warning emitted by the safety rules engine
+/// (lib/ai/safetyRules.ts), a pure function with no model involvement.
+/// `message` is always a constant from the codebase, never model-generated
+/// text -- see the module for why this must not depend on a good
+/// generation. `ruleId` identifies which rule fired, for auditability.
+model AiAssessmentSafetyWarning {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assessmentId   String         @map("assessment_id") @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  ruleId         String         @map("rule_id")
+  severity       SafetySeverity
+  message        String
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  assessment AiAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assessmentId])
+  @@map("ai_assessment_safety_warning")
+}
+
+/// DETERMINISTIC (human fact). The technician's judgment on one finding --
+/// confirmed, rejected, amended, or left unresolved. Deliberately its own
+/// table rather than a field on AiAssessmentFinding: the finding is what
+/// the model said and never changes; the verdict is what the technician
+/// decided and can be revised as work progresses (unique on findingId,
+/// upserted). Losing either one loses real information.
+model TechnicianVerdict {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String      @map("organization_id") @db.Uuid
+  assessmentId    String      @map("assessment_id") @db.Uuid
+  findingId       String      @unique @map("finding_id") @db.Uuid
+  verdict         VerdictKind
+  note            String?
+  createdByUserId String      @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  finding      AiAssessmentFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  createdBy    User                @relation("VerdictCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([assessmentId])
+  @@map("technician_verdict")
+}
+
+/// DETERMINISTIC. One row per model call attempt (including failures --
+/// a failed call still costs tokens and must be visible in cost
+/// attribution). This is the token/cost observability record; the
+/// per-organization monthly quota is enforced separately by counting
+/// AiAssessment rows directly (see assessmentRepository.countThisMonth),
+/// so quota enforcement does not depend on this table being consistent.
+model AiUsageLedger {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  assessmentId   String?  @map("assessment_id") @db.Uuid
+  /// 'YYYY-MM', UTC. Plain text rather than a date so "the org's usage for
+  /// this calendar month" is a direct equality match, not a range query.
+  billingPeriod  String   @map("billing_period")
+  modelId        String   @map("model_id")
+  inputTokens    Int      @map("input_tokens")
+  outputTokens   Int      @map("output_tokens")
+  succeeded      Boolean
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assessment   AiAssessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, billingPeriod])
+  @@map("ai_usage_ledger")
 }

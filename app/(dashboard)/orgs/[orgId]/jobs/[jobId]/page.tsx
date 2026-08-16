@@ -2,10 +2,13 @@ import { notFound } from "next/navigation";
 import { withAuthenticatedOrgContext } from "@/lib/auth/session";
 import { jobRepository } from "@/lib/db/repositories/jobRepository";
 import { evidenceRepository } from "@/lib/db/repositories/evidenceRepository";
+import { assessmentRepository } from "@/lib/db/repositories/assessmentRepository";
 import { createEvidenceDownloadUrls } from "@/lib/storage/evidenceStorage";
 import { MAX_EVIDENCE_PER_JOB } from "@/lib/validation/evidence";
+import { MAX_ASSESSMENT_IMAGES } from "@/lib/validation/assessment";
 import { JobWorkspace } from "@/components/jobs/JobWorkspace";
 import type { EvidenceItem } from "@/components/jobs/EvidenceSection";
+import type { AssessmentSummary } from "@/components/jobs/AssessmentSection";
 
 export default async function JobDetailPage({
   params,
@@ -13,13 +16,14 @@ export default async function JobDetailPage({
   params: Promise<{ orgId: string; jobId: string }>;
 }) {
   const { orgId, jobId } = await params;
-  const { job, evidence } = await withAuthenticatedOrgContext(
+  const { job, evidence, assessments } = await withAuthenticatedOrgContext(
     orgId,
     async (tx, ctx) => {
       const job = await jobRepository.getById(tx, ctx.orgId, jobId);
-      if (!job) return { job: null, evidence: [] };
+      if (!job) return { job: null, evidence: [], assessments: [] };
       const evidence = await evidenceRepository.listForJob(tx, ctx.orgId, jobId);
-      return { job, evidence };
+      const assessments = await assessmentRepository.listForJob(tx, ctx.orgId, jobId);
+      return { job, evidence, assessments };
     },
   );
 
@@ -41,12 +45,22 @@ export default async function JobDetailPage({
     url: urls.get(e.storageKey) ?? null,
   }));
 
+  const assessmentSummaries: AssessmentSummary[] = assessments.map((a) => ({
+    id: a.id,
+    version: a.version,
+    status: a.status,
+    modelTier: a.modelTier,
+    createdAt: a.createdAt.toISOString(),
+  }));
+
   return (
     <JobWorkspace
       orgId={orgId}
       job={job}
       evidence={evidenceItems}
       evidenceLimit={MAX_EVIDENCE_PER_JOB}
+      assessments={assessmentSummaries}
+      maxAssessmentImages={MAX_ASSESSMENT_IMAGES}
     />
   );
 }

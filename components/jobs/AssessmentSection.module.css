@@ -1,0 +1,327 @@
+.section {
+  margin-bottom: var(--space-6);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.sectionTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* --- evidence picker --- */
+
+.pickerCard {
+  margin-bottom: var(--space-4);
+}
+
+.pickerTitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-3);
+}
+
+.pickerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+  list-style: none;
+  margin-bottom: var(--space-4);
+}
+
+.pickerTile {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 2px solid var(--color-border);
+  background: var(--color-surface-secondary);
+  padding: 0;
+  cursor: pointer;
+}
+
+.pickerTile:disabled {
+  cursor: not-allowed;
+  opacity: var(--disabled-opacity);
+}
+
+.pickerTileSelected {
+  border-color: var(--color-accent);
+}
+
+.pickerImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pickerImgMissing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.pickerCheck {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  font-size: var(--text-xs);
+}
+
+.escalateRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-4);
+}
+
+.pickerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* --- assessment display --- */
+
+.versionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.versionLabel {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.inFlight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  color: var(--color-text-secondary);
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border-strong);
+  border-top-color: var(--color-accent);
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.insufficient {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-secondary);
+}
+
+.insufficientTitle {
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-1);
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.safetyList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.safetyBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.safetyBanner p {
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.severity_stop_work {
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger-soft-border);
+}
+
+.severity_mandatory {
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning-soft-border);
+}
+
+.severity_advisory {
+  background: var(--color-surface-secondary);
+}
+
+.noFindings {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Provenance styling: observations vs. hypotheses get distinct treatment
+   so it is never ambiguous which is which -- observations describe what
+   is visible, hypotheses propose an explanation and are the ones that
+   need a technician's verdict most. */
+.finding {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.findingObservation {
+  border-left: 3px solid var(--color-border-strong);
+}
+
+.findingHypothesis {
+  border-left: 3px solid var(--color-warning);
+  border-style: solid;
+}
+
+.findingHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.findingKind {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.findingConfidence {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.findingStatement {
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--space-1);
+}
+
+.findingRationale {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-3);
+}
+
+.citations {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.citationThumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.hypothesisExtra {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-secondary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.wouldChangeMind {
+  margin: 0 0 var(--space-2);
+}
+
+.testList {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.verdictRow {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.verdictButtons {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.questions {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.questionsTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-2);
+}
+
+.question {
+  margin-bottom: var(--space-3);
+}
+
+.questionText {
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--space-1);
+}
+
+.questionWhy {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}

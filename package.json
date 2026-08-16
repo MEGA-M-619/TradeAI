@@ -14,11 +14,13 @@
     "test:watch": "vitest",
     "test:security": "cross-env RUN_DB_SECURITY_TESTS=true vitest run tests/security",
     "test:e2e": "playwright test",
+    "eval:assessment": "vitest run --config vitest.eval.config.mts",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@prisma/adapter-pg": "^7.9.1",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",

@@ -47,5 +47,9 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 
+# eval harness output (npm run eval:assessment) -- timestamped reports,
+# not source
+/tests/eval/results/
+
 # claude code session runtime state (machine-specific pid/session id)
 /.claude/scheduled_tasks.lock
