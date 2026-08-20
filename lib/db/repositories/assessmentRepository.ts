@@ -227,6 +227,26 @@ export const assessmentRepository = {
     assessmentId: string,
     input: PersistCompleteInput,
   ): Promise<void> {
+    // Phase 8: the terminal status transition happens FIRST and is
+    // guarded on status:"running", exactly like claimForRun's guard on
+    // status:"queued". A run that took long enough for the reaper
+    // (5-minute default) to already mark it `failed` must not have its
+    // findings/citations/warnings written at all -- a P2025 here means
+    // this call lost the race and bails out before touching any child
+    // row, rather than writing everything and only discovering the
+    // conflict on the last insert.
+    if (!(await tryTransitionRunning(tx, orgId, assessmentId, {
+      status: "complete",
+      inputTokens: input.usage.inputTokens,
+      outputTokens: input.usage.outputTokens,
+      latencyMs: input.latencyMs,
+      stopReason: input.stopReason,
+      rawResponse: input.rawResponse as Prisma.InputJsonValue,
+      completedAt: new Date(),
+    }))) {
+      return;
+    }
+
     const testRows: Prisma.AiAssessmentTestCreateManyInput[] = [];
     const citationRows: Prisma.AiAssessmentCitationCreateManyInput[] = [];
 
@@ -292,19 +312,6 @@ export const assessmentRepository = {
     if (citationRows.length) {
       await tx.aiAssessmentCitation.createMany({ data: citationRows });
     }
-
-    await tx.aiAssessment.update({
-      where: { id: assessmentId, organizationId: orgId },
-      data: {
-        status: "complete",
-        inputTokens: input.usage.inputTokens,
-        outputTokens: input.usage.outputTokens,
-        latencyMs: input.latencyMs,
-        stopReason: input.stopReason,
-        rawResponse: input.rawResponse as Prisma.InputJsonValue,
-        completedAt: new Date(),
-      },
-    });
   },
 
   async persistInsufficientEvidence(
@@ -313,6 +320,22 @@ export const assessmentRepository = {
     assessmentId: string,
     input: PersistInsufficientInput,
   ): Promise<void> {
+    // Phase 8: same guard as persistComplete -- see its comment. Bails
+    // out before writing any safety-warning row if this run has already
+    // been reaped.
+    if (!(await tryTransitionRunning(tx, orgId, assessmentId, {
+      status: "insufficient_evidence",
+      insufficientReason: input.insufficientReason,
+      inputTokens: input.usage.inputTokens,
+      outputTokens: input.usage.outputTokens,
+      latencyMs: input.latencyMs,
+      stopReason: input.stopReason,
+      rawResponse: input.rawResponse as Prisma.InputJsonValue,
+      completedAt: new Date(),
+    }))) {
+      return;
+    }
+
     await tx.aiAssessmentSafetyWarning.createMany({
       data: input.safetyWarnings.map((w) => ({
         assessmentId,
@@ -322,19 +345,6 @@ export const assessmentRepository = {
         message: w.message,
       })),
     });
-    await tx.aiAssessment.update({
-      where: { id: assessmentId, organizationId: orgId },
-      data: {
-        status: "insufficient_evidence",
-        insufficientReason: input.insufficientReason,
-        inputTokens: input.usage.inputTokens,
-        outputTokens: input.usage.outputTokens,
-        latencyMs: input.latencyMs,
-        stopReason: input.stopReason,
-        rawResponse: input.rawResponse as Prisma.InputJsonValue,
-        completedAt: new Date(),
-      },
-    });
   },
 
   async markFailed(
@@ -343,18 +353,21 @@ export const assessmentRepository = {
     assessmentId: string,
     input: MarkFailedInput,
   ): Promise<void> {
-    await tx.aiAssessment.update({
-      where: { id: assessmentId, organizationId: orgId },
-      data: {
-        status: "failed",
-        failureCategory: input.category,
-        errorMessage: input.message,
-        rawResponse:
-          input.rawResponse !== undefined
-            ? (input.rawResponse as Prisma.InputJsonValue)
-            : undefined,
-        completedAt: new Date(),
-      },
+    // Phase 8: same guard as persistComplete -- see its comment. A run
+    // the reaper already reaped (status no longer "running") must not
+    // have the executor's own failure write clobber it -- the reaped row
+    // already carries status:"failed"/category:"timeout"; overwriting it
+    // with, say, category:"model_error" from a very-late-arriving error
+    // would misrepresent what actually happened.
+    await tryTransitionRunning(tx, orgId, assessmentId, {
+      status: "failed",
+      failureCategory: input.category,
+      errorMessage: input.message,
+      rawResponse:
+        input.rawResponse !== undefined
+          ? (input.rawResponse as Prisma.InputJsonValue)
+          : undefined,
+      completedAt: new Date(),
     });
   },
 
@@ -422,4 +435,43 @@ function isRecordNotFoundError(err: unknown): boolean {
     "code" in err &&
     (err as { code?: unknown }).code === "P2025"
   );
+}
+
+/**
+ * Guarded terminal-status transition shared by persistComplete,
+ * persistInsufficientEvidence, and markFailed (Phase 8). Mirrors
+ * claimForRun's status:"queued" guard, one step later in the lifecycle:
+ * this row must still be "running" -- i.e. this call must still own it --
+ * or the write is a no-op rather than an overwrite.
+ *
+ * Without this, a run slow enough for the reaper
+ * (prisma/migrations/20260817000011_ai_assessment_reaper, 5-minute
+ * default) to have already marked it `failed` could have a late-arriving
+ * executor result silently clobber that outcome -- turning a correctly
+ * timed-out run back into `complete`, or overwriting one failure category
+ * with another. Returns false (and logs, since this should be rare) when
+ * the guard did not match, so callers can skip writing any dependent row.
+ */
+async function tryTransitionRunning(
+  tx: TenantTxClient,
+  orgId: string,
+  assessmentId: string,
+  data: Prisma.AiAssessmentUpdateInput,
+): Promise<boolean> {
+  try {
+    await tx.aiAssessment.update({
+      where: { id: assessmentId, organizationId: orgId, status: "running" },
+      data,
+    });
+    return true;
+  } catch (err) {
+    if (isRecordNotFoundError(err)) {
+      console.warn(
+        "assessment executor: skipped a terminal write because the run was no longer 'running' (likely already reaped)",
+        { assessmentId, organizationId: orgId },
+      );
+      return false;
+    }
+    throw err;
+  }
 }

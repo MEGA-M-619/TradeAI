@@ -11,6 +11,7 @@ import { assessmentRepository } from "@/lib/db/repositories/assessmentRepository
 import { buildEvidenceKey, EVIDENCE_BUCKET } from "@/lib/storage/evidenceStorage";
 import { runQueuedAssessment } from "@/lib/ai/executor";
 import { FixtureAssessmentModel, makeResult } from "@/lib/ai/fixtureModel";
+import { BASELINE_WARNINGS } from "@/lib/ai/safetyRules";
 
 // The adversarial core of the Phase 3 test suite: exercises the real
 // executor (lib/ai/executor.ts) end to end against a live Supabase
@@ -417,5 +418,60 @@ describe.skipIf(!dbTestsEnabled)("assessment executor", () => {
 
     const freshResult = await getAssessment(fresh.id);
     expect(freshResult?.status).toBe("running");
+  });
+
+  it("Executor 10b: a result arriving after the reaper already reaped this run does not overwrite the reaped outcome (Phase 8)", async () => {
+    // Simulates the race a long-running model call can lose: claimed,
+    // then the reaper's 5-minute sweep marks it failed/timeout while the
+    // original call is still in flight, then that original call finally
+    // resolves and tries to persist a real result. persistComplete must
+    // treat the row as no longer its to write, not silently clobber the
+    // reaper's outcome.
+    const assessment = await createQueuedFor([evidenceGood.id]);
+    await withTenantContext({ userId: user.id, orgId: org.id }, (tx) =>
+      assessmentRepository.claimForRun(tx, org.id, assessment.id),
+    );
+    await privileged.query(
+      `update public.ai_assessment set claimed_at = now() - interval '1 hour' where id = $1::uuid`,
+      [assessment.id],
+    );
+    const reaped = await assessmentRepository.reapStuck();
+    expect(reaped.some((r) => r.id === assessment.id)).toBe(true);
+
+    const before = await getAssessment(assessment.id);
+    expect(before?.status).toBe("failed");
+    expect(before?.failureCategory).toBe("timeout");
+
+    // The "late" result: a well-formed, otherwise-valid completion.
+    await expect(
+      withTenantContext({ userId: user.id, orgId: org.id }, (tx) =>
+        assessmentRepository.persistComplete(tx, org.id, assessment.id, {
+          findings: [
+            {
+              ref: "O1",
+              kind: "observation",
+              statement: "late result",
+              confidence: "low",
+              rationale: "x",
+              whatWouldChangeMyMind: null,
+              safetyCategories: [],
+              citedEvidenceIds: [evidenceGood.id],
+              tests: [],
+            },
+          ],
+          questions: [],
+          safetyWarnings: [...BASELINE_WARNINGS],
+          usage: { inputTokens: 10, outputTokens: 10 },
+          stopReason: "tool_use",
+          latencyMs: 1,
+          rawResponse: { fixture: true },
+        }),
+      ),
+    ).resolves.toBeUndefined(); // no-op, not a thrown error
+
+    const after = await getAssessment(assessment.id);
+    expect(after?.status).toBe("failed");
+    expect(after?.failureCategory).toBe("timeout");
+    expect(after?.findings).toHaveLength(0);
   });
 });
