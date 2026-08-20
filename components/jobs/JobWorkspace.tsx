@@ -17,6 +17,15 @@ import {
 } from "@/components/ui";
 import { EvidenceSection, type EvidenceItem } from "./EvidenceSection";
 import { AssessmentSection, type AssessmentSummary } from "./AssessmentSection";
+import {
+  MeasurementsSection,
+  type MeasurementItem,
+  type CircuitOption,
+} from "./MeasurementsSection";
+import {
+  DiagnosticsSection,
+  type DiagnosticSessionSummary,
+} from "./DiagnosticsSection";
 import styles from "./JobWorkspace.module.css";
 
 type JobStatus = "open" | "in_progress" | "completed";
@@ -41,6 +50,11 @@ export function JobWorkspace({
   evidenceLimit,
   assessments,
   maxAssessmentImages,
+  measurements,
+  circuits,
+  diagnosticSessions,
+  measurementTestTypes,
+  allowedUnits,
 }: {
   orgId: string;
   job: Job;
@@ -48,6 +62,11 @@ export function JobWorkspace({
   evidenceLimit: number;
   assessments: AssessmentSummary[];
   maxAssessmentImages: number;
+  measurements: MeasurementItem[];
+  circuits: CircuitOption[];
+  diagnosticSessions: DiagnosticSessionSummary[];
+  measurementTestTypes: readonly string[];
+  allowedUnits: Record<string, readonly string[]>;
 }) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -164,6 +183,32 @@ export function JobWorkspace({
           jobId={job.id}
           evidence={evidence}
           limit={evidenceLimit}
+        />
+
+        {/* Measurements: what was actually read on site. Each reading is
+            evaluated server-side on creation, and attributing readings to
+            a circuit is what lets the safety layer below identify the
+            circuit under investigation. Manages its own saves. */}
+        <MeasurementsSection
+          orgId={orgId}
+          jobId={job.id}
+          customerId={job.customer.id}
+          measurements={measurements}
+          circuits={circuits}
+          testTypes={measurementTestTypes}
+          allowedUnits={allowedUnits}
+        />
+
+        {/* Diagnosis and safety. Placed directly after the readings it
+            reasons over, and before the AI assessment, because the
+            deterministic safety verdict is the thing that should be read
+            first -- not something found after scrolling past model
+            output. */}
+        <DiagnosticsSection
+          orgId={orgId}
+          jobId={job.id}
+          sessions={diagnosticSessions}
+          measurements={measurements}
         />
 
         {/* AI Assessment: reviews the technician's chosen evidence and

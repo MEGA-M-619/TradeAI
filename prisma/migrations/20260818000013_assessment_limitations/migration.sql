@@ -1,0 +1,31 @@
+-- Phase 3 correctness fix: persist the model's stated limitations.
+--
+-- modelOutputSchema has always REQUIRED the model to state what it could
+-- not determine from the photographs (lib/validation/assessment.ts's
+-- `limitations`), and the executor has always validated that field -- but
+-- it was never read back out of the validated output, so it survived only
+-- inside ai_assessment.raw_response, which is explicitly never rendered to
+-- end users. The technician therefore never saw the model's own account of
+-- what it could not see. That is a safety-relevant omission, not a cosmetic
+-- one: a limitation ("the neutral bar is out of frame", "the panel label is
+-- illegible") is precisely the information that stops a finding from being
+-- over-trusted.
+--
+-- Stored as TEXT[] on ai_assessment rather than in a child table, matching
+-- ai_assessment.selected_evidence_ids and ai_assessment_question.
+-- answers_would_rule_in: a bounded (max 10, enforced by the Zod schema),
+-- ordered list of plain strings that is never individually cited,
+-- verdicted, or foreign-keyed. A child table would need its own RLS policy
+-- and indexes to carry no additional information.
+--
+-- No RLS change is required: ai_assessment's existing org_scoped_all policy
+-- (20260817000010_ai_assessment_rls) gates the row, and therefore every
+-- column on it, including this one.
+--
+-- Backfill semantics: existing rows get '{}' (the column default), which is
+-- indistinguishable from "the model stated no limitations". That is
+-- accurate for the only rows that can exist today -- no assessment has ever
+-- completed against a live model in this deployment -- and an empty array
+-- renders nothing in the UI either way.
+
+ALTER TABLE "ai_assessment" ADD COLUMN "limitations" TEXT[] NOT NULL DEFAULT '{}';

@@ -16,6 +16,33 @@ describe("applySafetyRules", () => {
     expect(warnings).toHaveLength(BASELINE_WARNINGS.length);
   });
 
+  /**
+   * The failure path in lib/ai/executor.ts calls applySafetyRules([])
+   * precisely so a failed run carries precautions without inventing a
+   * hazard. These two assertions are the unit-level guarantee behind
+   * that, and unlike the live-DB executor suite they run unconditionally
+   * in CI -- so the safety property is protected even when the remote
+   * database is unavailable.
+   */
+  it("the failure path's empty-findings call yields exactly the baselines, in order", () => {
+    expect(applySafetyRules([])).toEqual([...BASELINE_WARNINGS]);
+  });
+
+  it("no AI-derived hazard can be produced without a finding that carries one", () => {
+    // A failed run establishes no findings, so there is nothing to
+    // iterate and no category warning is reachable -- structurally, not
+    // by convention. This is what stops "the model call failed" from
+    // being recorded as "a hazard was detected".
+    const warnings = applySafetyRules([]);
+    for (const warning of warnings) {
+      expect(warning.ruleId).not.toMatch(/^category_/);
+      expect(warning.severity).toBe("advisory");
+    }
+    for (const category of SAFETY_CATEGORIES) {
+      expect(warnings.map((w) => w.ruleId)).not.toContain(`category_${category}`);
+    }
+  });
+
   it("includes baseline warnings even when findings carry no safety categories", () => {
     const warnings = applySafetyRules([
       { kind: "observation", safetyCategories: [] },

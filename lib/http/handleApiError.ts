@@ -4,6 +4,7 @@ import {
   UnauthenticatedError,
   ForbiddenOrgAccessError,
 } from "@/lib/auth/session";
+import { DiagnosticCauseConflictError } from "@/lib/db/repositories/diagnosticCauseRepository";
 
 /**
  * Shared error -> HTTP response mapping for API route handlers. Deliberately
@@ -16,6 +17,12 @@ export function handleApiError(error: unknown): NextResponse {
   }
   if (error instanceof ForbiddenOrgAccessError) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  if (error instanceof DiagnosticCauseConflictError) {
+    return NextResponse.json(
+      { error: "cause_already_confirmed" },
+      { status: 409 },
+    );
   }
   if (error instanceof ZodError) {
     return NextResponse.json(

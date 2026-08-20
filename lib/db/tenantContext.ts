@@ -45,11 +45,28 @@ export async function withTenantContext<T>(
   ctx: TenantContext,
   fn: (tx: TenantTxClient) => Promise<T>,
 ): Promise<T> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.current_user_id', ${ctx.userId}, true)`;
-    if (ctx.orgId) {
-      await tx.$executeRaw`SELECT set_config('app.current_org_id', ${ctx.orgId}, true)`;
-    }
-    return fn(tx);
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_user_id', ${ctx.userId}, true)`;
+      if (ctx.orgId) {
+        await tx.$executeRaw`SELECT set_config('app.current_org_id', ${ctx.orgId}, true)`;
+      }
+      return fn(tx);
+    },
+    // Prisma's defaults (2s to acquire, 5s to complete) are sized for a
+    // short write against a local database. Every tenant-scoped read in
+    // this app runs through here, and a page that legitimately makes
+    // several reads -- the job workspace loads job, evidence,
+    // assessments, measurements, circuits and diagnostic sessions --
+    // exceeds 5s against a pooled remote Postgres purely on round-trip
+    // latency, and Prisma then refuses the commit. These raise the
+    // ceiling; they do not change what the transaction does, and the
+    // set_config calls remain transaction-local either way.
+    //
+    // Kept deliberately modest rather than generous: a long transaction
+    // pins a Supavisor connection for its duration, so this is a ceiling
+    // for legitimate slow round-trips, not licence to do heavy work
+    // inside a transaction.
+    { maxWait: 10_000, timeout: 20_000 },
+  );
 }

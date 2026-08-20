@@ -4,6 +4,10 @@
 // Phase 1 adds: customers, jobs.
 // Phase 2 adds: evidence (job photos).
 // Phase 3 adds: AI/vision-assisted assessment.
+// Phase 4 adds: circuits and structured measurements (Intelligence Layer
+// foundation -- see docs/architecture/ai-assessment.md and the approved
+// Intelligence Layer architecture analysis for how this and later phases
+// fit together).
 // Every other domain table is added in later phases per the approved
 // architecture.
 
@@ -35,13 +39,17 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships        OrganizationMembership[]
-  customers          Customer[]
-  jobs               Job[]
-  evidence           Evidence[]
-  aiAssessments      AiAssessment[]
-  technicianVerdicts TechnicianVerdict[]
-  aiUsageLedger      AiUsageLedger[]
+  memberships               OrganizationMembership[]
+  customers                 Customer[]
+  jobs                      Job[]
+  evidence                  Evidence[]
+  aiAssessments             AiAssessment[]
+  technicianVerdicts        TechnicianVerdict[]
+  aiUsageLedger             AiUsageLedger[]
+  circuits                  Circuit[]
+  measurements              Measurement[]
+  diagnosticSessions        DiagnosticSession[]
+  diagnosticCandidateCauses DiagnosticCandidateCause[]
 
   @@map("organizations")
 }
@@ -59,12 +67,15 @@ model User {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships          OrganizationMembership[]
-  jobsCreated          Job[]
-  evidenceUploaded     Evidence[]               @relation("EvidenceUploadedBy")
-  evidenceDeleted      Evidence[]               @relation("EvidenceDeletedBy")
-  assessmentsRequested AiAssessment[]           @relation("AssessmentRequestedBy")
-  verdictsGiven        TechnicianVerdict[]      @relation("VerdictCreatedBy")
+  memberships               OrganizationMembership[]
+  jobsCreated               Job[]
+  evidenceUploaded          Evidence[]                 @relation("EvidenceUploadedBy")
+  evidenceDeleted           Evidence[]                 @relation("EvidenceDeletedBy")
+  assessmentsRequested      AiAssessment[]             @relation("AssessmentRequestedBy")
+  verdictsGiven             TechnicianVerdict[]        @relation("VerdictCreatedBy")
+  measurementsRecorded      Measurement[]              @relation("MeasurementRecordedBy")
+  diagnosticSessionsCreated DiagnosticSession[]        @relation("DiagnosticSessionCreatedBy")
+  diagnosticCausesCreated   DiagnosticCandidateCause[] @relation("DiagnosticCandidateCauseCreatedBy")
 
   @@map("users")
 }
@@ -103,6 +114,7 @@ model Customer {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   jobs         Job[]
+  circuits     Circuit[]
 
   @@index([organizationId])
   @@map("customers")
@@ -131,21 +143,27 @@ model Job {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  createdBy    User           @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
-  evidence     Evidence[]
-  assessments  AiAssessment[]
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy          User                @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  evidence           Evidence[]
+  assessments        AiAssessment[]
+  measurements       Measurement[]
+  diagnosticSessions DiagnosticSession[]
 
   @@index([organizationId])
   @@index([customerId])
   @@map("jobs")
 }
 
-/// Only `photo` is implemented in Phase 2. The discriminator exists from
-/// the start because this table is the home for measurements and
-/// documents too -- adding the column later would mean migrating the
-/// meaning of existing rows, not just adding an enum value.
+/// Only `photo` is implemented. Originally reserved for measurement rows
+/// too (see the old comment on this enum in Phase 2), but Phase 4 modeled
+/// measurements as their own table instead: a numeric reading has no
+/// bytes to store and doesn't fit this table's upload-object model. See
+/// the `Measurement` model, which optionally links back to an Evidence
+/// photo (e.g. a photo of a multimeter display) via a nullable
+/// `evidenceId`, rather than being an EvidenceKind variant. The
+/// discriminator stays for the still-future `document` case.
 enum EvidenceKind {
   photo
 
@@ -164,7 +182,8 @@ enum EvidenceUploadStatus {
   @@map("evidence_upload_status")
 }
 
-/// A photo (later: measurement/document) attached to a job.
+/// A photo (later: document) attached to a job. Measurements are modeled
+/// separately -- see `Measurement` -- rather than as a kind of Evidence.
 ///
 /// Deletion is deliberately asymmetric: the Storage object is hard-deleted
 /// (these are photos inside a customer's home -- privacy and storage cost
@@ -201,6 +220,7 @@ model Evidence {
   uploadedBy       User                @relation("EvidenceUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
   deletedBy        User?               @relation("EvidenceDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
   assessmentInputs AiAssessmentInput[]
+  measurements     Measurement[]
 
   @@index([organizationId])
   @@index([jobId])
@@ -243,6 +263,15 @@ enum AssessmentModelTier {
 enum AssessmentFailureCategory {
   quota_exceeded
   sha_mismatch
+  /// The selected evidence exceeded a server-side payload limit (per-image
+  /// bytes, total bytes, or image count) -- see lib/ai/imagePayload.ts.
+  /// Distinguished from model_error on purpose: this is a request this
+  /// application declined to make, not a call the provider failed.
+  payload_too_large
+  /// The stored bytes are not one of the supported image formats, or do
+  /// not match the mime type recorded on the evidence row. Checked against
+  /// the actual downloaded bytes, never the client's declared type alone.
+  unsupported_media_type
   model_error
   schema_violation
   citation_violation
@@ -323,6 +352,19 @@ model AiAssessment {
   /// exists for debugging and reproducibility, not for display.
   rawResponse         Json?                      @map("raw_response")
   insufficientReason  String?                    @map("insufficient_reason")
+  /// INFERENCE (model-authored, like insufficientReason above -- the two
+  /// exceptions to this table being otherwise deterministic). What the
+  /// model itself said it could not determine from the photographs it was
+  /// given. Required of the model by modelOutputSchema and validated
+  /// before it reaches here, so this is never free-form text that skipped
+  /// validation. Stored on the assessment rather than in a child table:
+  /// it is a bounded (<=10), ordered list of plain strings that is never
+  /// individually addressed, cited, or verdicted -- the same shape as
+  /// answersWouldRuleIn on AiAssessmentQuestion.
+  ///
+  /// Shown to the technician. A stated limitation is a safety signal, not
+  /// a footnote: it is the model's own account of what it could not see.
+  limitations         String[]                   @default([])
   failureCategory     AssessmentFailureCategory? @map("failure_category")
   errorMessage        String?                    @map("error_message")
   claimedAt           DateTime?                  @map("claimed_at") @db.Timestamptz(6)
@@ -539,4 +581,205 @@ model AiUsageLedger {
 
   @@index([organizationId, billingPeriod])
   @@map("ai_usage_ledger")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: circuits and structured measurements (Intelligence Layer
+// foundation).
+//
+// Deliberately independent of the Phase 3 AI-assessment tables in this
+// phase: nothing here is read or written by lib/ai/executor.ts yet, and no
+// AiAssessmentCitation-style DB-enforced link into these tables exists.
+// That integration is a later, separately-planned phase.
+//
+// A circuit is scoped to the customer, not the job: a panel or branch
+// circuit is a physical thing that persists across visits, which is
+// exactly what job-memory queries need to walk. A measurement is scoped to
+// the job it was taken during (plus, optionally, the circuit it was taken
+// on), matching how Evidence is scoped to the job it was captured for.
+
+enum MeasurementTestType {
+  voltage_ac
+  voltage_dc
+  continuity
+  resistance
+  current_ac
+  current_dc
+  insulation_resistance
+  ground_impedance
+
+  @@map("measurement_test_type")
+}
+
+enum MeasurementResult {
+  pass
+  fail
+  inconclusive
+  not_applicable
+
+  @@map("measurement_result")
+}
+
+/// A customer's panel or branch circuit. Scoped to the customer (not the
+/// job) because it outlives any single visit -- job memory depends on
+/// being able to walk one circuit's measurement history across many jobs.
+/// onDelete: Restrict on customerId matches Job's pattern: a circuit with
+/// recorded history should never be silently cascaded away by a customer
+/// delete.
+model Circuit {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  customerId     String   @map("customer_id") @db.Uuid
+  label          String
+  panelLabel     String?  @map("panel_label")
+  breakerRating  Int?     @map("breaker_rating")
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  measurements Measurement[]
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@map("circuits")
+}
+
+/// DETERMINISTIC -- entirely technician-recorded, unlike the Phase 3 AI
+/// tables there is no model-authored content here at all. A structured
+/// test recorded against a job, optionally tied to a circuit and
+/// optionally to an Evidence photo (e.g. a photo of the multimeter
+/// display) -- never the other way around; Evidence.kind stays photo-only
+/// (see EvidenceKind). `value`/`unit` are the raw reading;
+/// `expectedMin`/`expectedMax` are the acceptable range the technician
+/// supplied. `result` is deliberately nullable: it must be computed from
+/// those by a deterministic rule engine, never chosen freehand, and that
+/// engine (lib/diagnostics/measurementRules.ts) is a later step -- rows
+/// created before it ships simply have no result until backfilled.
+model Measurement {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String              @map("organization_id") @db.Uuid
+  jobId            String              @map("job_id") @db.Uuid
+  circuitId        String?             @map("circuit_id") @db.Uuid
+  evidenceId       String?             @map("evidence_id") @db.Uuid
+  recordedByUserId String              @map("recorded_by_user_id") @db.Uuid
+  testType         MeasurementTestType @map("test_type")
+  value            Float
+  unit             String
+  expectedMin      Float?              @map("expected_min")
+  expectedMax      Float?              @map("expected_max")
+  result           MeasurementResult?
+  note             String?
+  recordedAt       DateTime            @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization    Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job             Job                        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  circuit         Circuit?                   @relation(fields: [circuitId], references: [id], onDelete: SetNull)
+  evidence        Evidence?                  @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  recordedBy      User                       @relation("MeasurementRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  resolvingCauses DiagnosticCandidateCause[]
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@index([circuitId])
+  @@map("measurements")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3A: diagnostic sessions (Diagnostic Engine foundation).
+//
+// Deliberately independent of the Phase 3 (original numbering)
+// AiAssessment tables: a DiagnosticSession is never a version of an
+// AiAssessment and nothing here is read or written by lib/ai/executor.ts.
+// See docs/architecture/diagnostics.md for why these stayed separate
+// rather than extending AiAssessment.
+//
+// DETERMINISTIC throughout (human fact, like TechnicianVerdict) -- there
+// is no model-authored content anywhere in this section in this phase. A
+// DiagnosticCandidateCause.status can only ever be set by a technician;
+// lib/db/repositories/diagnosticCauseRepository.ts enforces the "at most
+// one confirmed cause per session" invariant and the "confirming a cause
+// moves its session to diagnosed" transition -- neither is a DB
+// constraint, both are documented there.
+
+enum DiagnosticSessionStatus {
+  open
+  investigating
+  diagnosed
+  abandoned
+
+  @@map("diagnostic_session_status")
+}
+
+enum DiagnosticCauseStatus {
+  candidate
+  confirmed
+  ruled_out
+
+  @@map("diagnostic_cause_status")
+}
+
+/// A structured troubleshooting thread for a job: a symptom statement plus
+/// a status that only ever moves forward through repository-enforced
+/// transitions (see diagnosticCauseRepository.update). `symptom` may start
+/// pre-filled from Job.problemDescription by the UI layer, but is its own
+/// field -- a job can have more than one session (e.g. an electrician
+/// finds a second, unrelated issue mid-visit), and a symptom statement can
+/// be refined independently of the job's original problem description.
+model DiagnosticSession {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String                  @map("organization_id") @db.Uuid
+  jobId           String                  @map("job_id") @db.Uuid
+  symptom         String
+  status          DiagnosticSessionStatus @default(open)
+  createdByUserId String                  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job                        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdBy    User                       @relation("DiagnosticSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  causes       DiagnosticCandidateCause[]
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@map("diagnostic_sessions")
+}
+
+/// A technician's hypothesis for what's causing a DiagnosticSession's
+/// symptom. `status` starts at `candidate` and is only ever moved through
+/// diagnosticCauseRepository.update -- never set directly at creation, so
+/// the "at most one confirmed cause per session" check has exactly one
+/// code path to guard, not two.
+///
+/// `resolvingMeasurementId` is informational, not causal: linking a
+/// Measurement here never by itself changes `status`. Whether a given
+/// measurement's pass/fail confirms or rules out a *specific* candidate
+/// cause is domain judgment this codebase has no verified authority to
+/// automate -- the same reasoning that keeps
+/// lib/diagnostics/measurementRules.ts free of invented thresholds. See
+/// docs/architecture/diagnostics.md.
+model DiagnosticCandidateCause {
+  id                     String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId         String                @map("organization_id") @db.Uuid
+  diagnosticSessionId    String                @map("diagnostic_session_id") @db.Uuid
+  statement              String
+  status                 DiagnosticCauseStatus @default(candidate)
+  recommendedNextTest    String?               @map("recommended_next_test")
+  resolvingMeasurementId String?               @map("resolving_measurement_id") @db.Uuid
+  createdByUserId        String                @map("created_by_user_id") @db.Uuid
+  createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization         Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session              DiagnosticSession @relation(fields: [diagnosticSessionId], references: [id], onDelete: Cascade)
+  resolvingMeasurement Measurement?      @relation(fields: [resolvingMeasurementId], references: [id], onDelete: SetNull)
+  createdBy            User              @relation("DiagnosticCandidateCauseCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([diagnosticSessionId])
+  @@map("diagnostic_candidate_causes")
 }

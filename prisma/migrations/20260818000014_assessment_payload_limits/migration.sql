@@ -1,0 +1,35 @@
+-- Phase 3 correctness fix: categorized failures for server-side payload
+-- governance.
+--
+-- Image size was previously constrained only by the client
+-- (lib/ui/prepareImageUpload.ts downscales to a 2048px long edge) and by
+-- the storage bucket's own 10 MiB per-object limit. Neither is a server-side
+-- control over what this application sends to a third-party model:
+--
+--   * the client holds a signed direct-to-storage upload URL, so the
+--     downscale is a courtesy it can simply skip -- prepareImageUpload.ts
+--     says so itself ("Nothing here is a security control");
+--   * 8 objects at the bucket's own limit is ~80 MiB of raw bytes, which
+--     base64-encodes to ~107 MB and is far past Anthropic's documented
+--     32 MB request ceiling and 10 MB (base64) per-image ceiling.
+--
+-- That request would have failed at the provider and been recorded as
+-- `model_error` -- the same category as a network blip or a 5xx -- telling
+-- the technician "the assessment service could not be reached" for a
+-- request this application should never have made. These two categories
+-- make the real cause recordable and, in the UI, actionable.
+--
+-- The limits themselves are constants in lib/ai/imagePayload.ts, checked
+-- against the ACTUAL bytes fetched from storage (not the client-declared
+-- byte_size/mime_type on the evidence row), immediately after the existing
+-- sha256 verification and before any base64 encoding or model call.
+--
+-- Enum values are appended with AFTER so the database's value order matches
+-- the declaration order in prisma/schema.prisma. Adding a value to an
+-- existing enum is a metadata-only change; it rewrites no rows and takes no
+-- table lock. Nothing in this migration USES either new value, which is
+-- what keeps it safe inside the single transaction Prisma wraps a migration
+-- in (Postgres forbids using a value added in the same transaction).
+
+ALTER TYPE "assessment_failure_category" ADD VALUE 'payload_too_large' AFTER 'sha_mismatch';
+ALTER TYPE "assessment_failure_category" ADD VALUE 'unsupported_media_type' AFTER 'payload_too_large';

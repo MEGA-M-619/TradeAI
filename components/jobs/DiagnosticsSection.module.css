@@ -1,0 +1,183 @@
+.section {
+  margin-bottom: var(--space-8, 2rem);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.subhead {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: var(--space-4, 1rem) 0 var(--space-2, 0.5rem);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3, 0.75rem);
+}
+
+.errorSlot {
+  margin-bottom: var(--space-3, 0.75rem);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.875rem;
+}
+
+/* --- Safety banner -------------------------------------------------
+   Sits above all diagnostic content. A stop condition must be the first
+   thing read, never something found after scrolling past causes. */
+
+.safetyBanner {
+  border: 1px solid;
+  border-left-width: 4px;
+  border-radius: var(--radius-md, 0.5rem);
+  padding: var(--space-4, 1rem);
+  margin-bottom: var(--space-3, 0.75rem);
+}
+
+.toneStop {
+  background: var(--color-danger-soft, #fef2f2);
+  border-color: var(--color-danger-soft-border, #fecaca);
+}
+
+.toneUnknown {
+  background: var(--color-warning-soft, #fffbeb);
+  border-color: var(--color-warning-soft-border, #fde68a);
+}
+
+.toneFloor {
+  background: var(--color-surface-secondary, #f9fafb);
+  border-color: var(--color-border, #e5e7eb);
+}
+
+.safetyHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  flex-wrap: wrap;
+}
+
+.safetyHeadline {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.safetyBlock {
+  margin-top: var(--space-3, 0.75rem);
+}
+
+.safetySubhead {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0 0 var(--space-1, 0.25rem);
+}
+
+.safetyList {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 0.25rem);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+/* --- Session + causes ---------------------------------------------- */
+
+.sessionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.symptom {
+  margin: 0;
+  font-weight: 550;
+  font-size: 1rem;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.causeList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+}
+
+.cause {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-md, 0.5rem);
+  padding: var(--space-3, 0.75rem);
+}
+
+.causeHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2, 0.5rem);
+  flex-wrap: wrap;
+}
+
+.causeStatement {
+  font-weight: 500;
+}
+
+.nextTest,
+.linked {
+  margin: var(--space-2, 0.5rem) 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.causeActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  margin-top: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.addCause {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3, 0.75rem);
+  margin-top: var(--space-4, 1rem);
+  padding-top: var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  flex-wrap: wrap;
+}
+
+.addCause > *:not(:last-child) {
+  flex: 1 1 220px;
+}
+
+.advice {
+  margin-top: var(--space-4, 1rem);
+}

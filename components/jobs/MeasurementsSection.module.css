@@ -1,0 +1,117 @@
+.section {
+  margin-bottom: var(--space-8, 2rem);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3, 0.75rem);
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.newCircuitRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3, 0.75rem);
+  padding-top: var(--space-3, 0.75rem);
+  margin-top: var(--space-3, 0.75rem);
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  flex-wrap: wrap;
+}
+
+.newCircuitRow > *:first-child {
+  flex: 1 1 200px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4, 1rem);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.reading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 0.5rem);
+  min-width: 0;
+}
+
+/* Deliberately large: this is the number the electrician came for. */
+.value {
+  font-size: 1.5rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.unit {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-left: 0.15rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.testType {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  flex-wrap: wrap;
+}
+
+.circuit {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.unattributed {
+  font-size: 0.8125rem;
+  color: var(--color-warning-text, #92400e);
+}
+
+.expected,
+.note {
+  margin: var(--space-2, 0.5rem) 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.criterion {
+  font-style: italic;
+}
