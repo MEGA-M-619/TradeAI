@@ -19,6 +19,23 @@ export const ESCALATION_MODEL_ID = "claude-opus-5";
 
 const MAX_TOKENS = 4096;
 
+/**
+ * Deliberately chosen, not left to SDK defaults (Phase 8). The reaper
+ * (prisma/migrations/20260817000011_ai_assessment_reaper) sweeps a
+ * `running` assessment after 5 minutes; this timeout is kept comfortably
+ * under that so a genuinely stuck call fails here -- through the
+ * executor's own `model_error` handling, which records the three
+ * baseline safety warnings immediately -- rather than sitting until the
+ * coarser reaper sweep catches it with no warnings at all (see the
+ * reaper's known gap in docs/architecture/safety.md). `maxRetries` is
+ * capped low: this call already costs tokens on every attempt, and a
+ * schema/citation failure is a value returned by a successful HTTP call,
+ * never a retryable transport error, so the SDK's retry budget is spent
+ * only on genuine connection/5xx/429 failures.
+ */
+const REQUEST_TIMEOUT_MS = 120_000;
+const MAX_RETRIES = 2;
+
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!client) {
@@ -26,7 +43,7 @@ function getClient(): Anthropic {
     if (!apiKey) {
       throw new AssessmentModelError("ANTHROPIC_API_KEY is not set");
     }
-    client = new Anthropic({ apiKey });
+    client = new Anthropic({ apiKey, timeout: REQUEST_TIMEOUT_MS, maxRetries: MAX_RETRIES });
   }
   return client;
 }

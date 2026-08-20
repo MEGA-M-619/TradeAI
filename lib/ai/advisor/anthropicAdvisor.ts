@@ -27,6 +27,19 @@ export const DEFAULT_ADVISOR_MODEL_ID =
 
 const MAX_TOKENS = 2048;
 
+/**
+ * Deliberately chosen, not left to SDK defaults (Phase 8). The advisor is
+ * invoked synchronously from a button press (see the module header), so
+ * an unbounded default timeout would leave a technician staring at a
+ * spinner indefinitely; 45s is generous for a text-only, forced-tool-use
+ * call with no images. `maxRetries` is capped low for the same reason as
+ * lib/ai/anthropicModel.ts: this is a paid call on every attempt, and a
+ * grounding/schema failure is a value returned by a successful HTTP call,
+ * never a retryable transport error.
+ */
+const REQUEST_TIMEOUT_MS = 45_000;
+const MAX_RETRIES = 2;
+
 let client: Anthropic | null = null;
 
 function getClient(): Anthropic {
@@ -37,7 +50,7 @@ function getClient(): Anthropic {
       "ANTHROPIC_API_KEY is not configured; the diagnostic advisor is unavailable",
     );
   }
-  client = new Anthropic({ apiKey });
+  client = new Anthropic({ apiKey, timeout: REQUEST_TIMEOUT_MS, maxRetries: MAX_RETRIES });
   return client;
 }
 
