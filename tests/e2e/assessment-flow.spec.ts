@@ -40,7 +40,10 @@ function adminClient() {
  */
 test.describe("job assessment request flow", () => {
   test.skip(!runDbTests, "requires RUN_DB_SECURITY_TESTS=true and a live Supabase project");
-  test.describe.configure({ timeout: 120_000 });
+  // Serial because the second test renders against the organization and job
+  // the first one creates, and because the shared afterAll cleans up by
+  // orgId. Without this, fullyParallel would race them across workers.
+  test.describe.configure({ timeout: 120_000, mode: "serial" });
 
   let email: string;
   let password: string;
@@ -171,5 +174,150 @@ test.describe("job assessment request flow", () => {
     expect(inputRows.rowCount).toBe(1);
     expect(inputRows.rows[0].sha256_verified).toMatch(/^[0-9a-f]{64}$/);
     await pool.end();
+  });
+
+  /**
+   * The model's stated limitations reach the technician's screen.
+   *
+   * Seeded straight into the database rather than produced by a model
+   * call: this environment has no ANTHROPIC_API_KEY, so a completed
+   * assessment cannot be generated here. What is exercised is everything
+   * downstream of persistence -- the new column, the repository read, the
+   * assessment detail API route, and the rendered UI -- which is exactly
+   * the path that was silently dropping this field before.
+   */
+  test("a completed assessment shows the model's stated limitations to the technician", async ({
+    page,
+  }) => {
+    const limitations = [
+      "The neutral bar is out of frame in every photo",
+      "The panel schedule label is not legible at this resolution",
+    ];
+
+    const pool = new Pool({ connectionString: process.env.DIRECT_URL });
+    try {
+      const jobs = await pool.query<{ id: string }>(
+        `select id from public.jobs where organization_id = $1::uuid limit 1`,
+        [orgId],
+      );
+      expect(jobs.rowCount).toBe(1);
+      const jobId = jobs.rows[0].id;
+
+      // Version 2, so this is the assessment the workspace shows (the
+      // section renders the latest version, and version 1 is the failed
+      // run from the test above).
+      await pool.query(
+        `insert into public.ai_assessment
+           (organization_id, job_id, requested_by_user_id, version, status,
+            model_id, prompt_version, schema_version, limitations,
+            completed_at, updated_at)
+         values ($1::uuid, $2::uuid, $3::uuid, 2, 'complete',
+                 'claude-sonnet-5', 'test', 'test', $4, now(), now())`,
+        [orgId, jobId, userId, limitations],
+      );
+
+      await page.goto("/login");
+      await page.getByLabel("Email").fill(email);
+      await page.getByLabel("Password").fill(password);
+      await page.getByRole("button", { name: "Log in" }).click();
+      // Only assert that login completed. Unlike the test above, this user
+      // already belongs to an organization, so the app redirects past the
+      // first-run /orgs page to that org's jobs list -- asserting any exact
+      // intermediate URL here races the redirect chain.
+      await expect(page).not.toHaveURL(/\/login$/);
+
+      await page.goto(`/orgs/${orgId}/jobs/${jobId}`);
+      await expect(page.getByText("Version 2")).toBeVisible();
+
+      await expect(
+        page.getByText("What this assessment could not determine"),
+      ).toBeVisible();
+      for (const limitation of limitations) {
+        await expect(page.getByText(limitation)).toBeVisible();
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+
+  /**
+   * Phase 7D: safety warnings must render on insufficient_evidence, not
+   * only on a completed assessment, and must render most-severe-first
+   * regardless of the order they were written in. Seeded directly (as
+   * the test above does) since the model call still cannot be exercised
+   * here -- this proves the read/render path, not the model.
+   */
+  test("an insufficient_evidence assessment shows its safety warnings, most severe first", async ({
+    page,
+  }) => {
+    const pool = new Pool({ connectionString: process.env.DIRECT_URL });
+    try {
+      const jobs = await pool.query<{ id: string }>(
+        `select id from public.jobs where organization_id = $1::uuid limit 1`,
+        [orgId],
+      );
+      expect(jobs.rowCount).toBe(1);
+      const jobId = jobs.rows[0].id;
+
+      // Version 3, so this becomes the latest and is what the workspace
+      // shows.
+      const assessment = await pool.query<{ id: string }>(
+        `insert into public.ai_assessment
+           (organization_id, job_id, requested_by_user_id, version, status,
+            model_id, prompt_version, schema_version, insufficient_reason,
+            completed_at, updated_at)
+         values ($1::uuid, $2::uuid, $3::uuid, 3, 'insufficient_evidence',
+                 'claude-sonnet-5', 'test', 'test', $4, now(), now())
+         returning id`,
+        [orgId, jobId, userId, "The panel label is not legible in any photo."],
+      );
+      const assessmentId = assessment.rows[0].id;
+
+      // Inserted out of both severity and alphabetical order, so a
+      // passing "most severe first" assertion below cannot be an
+      // accident of insertion order.
+      await pool.query(
+        `insert into public.ai_assessment_safety_warning
+           (assessment_id, organization_id, rule_id, severity, message)
+         values
+           ($1::uuid, $2::uuid, 'zz_advisory', 'advisory', 'Always de-energize and verify absence of voltage first.'),
+           ($1::uuid, $2::uuid, 'mm_stop', 'stop_work', 'Possible arc fault indicators were noted.'),
+           ($1::uuid, $2::uuid, 'bb_mandatory', 'mandatory', 'Possible missing bonding or grounding was noted.')`,
+        [assessmentId, orgId],
+      );
+
+      await page.goto("/login");
+      await page.getByLabel("Email").fill(email);
+      await page.getByLabel("Password").fill(password);
+      await page.getByRole("button", { name: "Log in" }).click();
+      await expect(page).not.toHaveURL(/\/login$/);
+
+      await page.goto(`/orgs/${orgId}/jobs/${jobId}`);
+      await expect(page.getByText("Version 3")).toBeVisible();
+
+      // Not hidden merely because the assessment did not complete.
+      await expect(
+        page.getByText("Not enough information in these photos"),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Possible arc fault indicators were noted."),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Possible missing bonding or grounding was noted."),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Always de-energize and verify absence of voltage first."),
+      ).toBeVisible();
+
+      // Rendered order follows severity -- stop_work, then mandatory, then
+      // advisory -- not the insertion order or ruleId alphabetical order
+      // used when writing the fixture above.
+      const badges = await page
+        .getByText(/^(Stop work|Mandatory|Advisory)$/)
+        .allTextContents();
+      expect(badges).toEqual(["Stop work", "Mandatory", "Advisory"]);
+    } finally {
+      await pool.end();
+    }
   });
 });

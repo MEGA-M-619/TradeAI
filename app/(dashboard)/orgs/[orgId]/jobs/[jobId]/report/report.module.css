@@ -1,0 +1,229 @@
+.reportRoot {
+  max-width: 840px;
+  margin: 0 auto;
+}
+
+.noPrint {
+  /* Wraps the on-screen PageHeader/nav so it can be hidden when printing
+     without touching the shared PageHeader component itself. */
+}
+
+.printHeader {
+  display: none;
+}
+
+.section {
+  margin-bottom: var(--space-8, 2rem);
+}
+
+.sectionTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-3, 0.75rem);
+}
+
+.fieldList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3, 0.75rem);
+  margin: 0;
+}
+
+.field dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0 0 0.125rem;
+}
+
+.field dd {
+  margin: 0;
+  font-weight: 500;
+}
+
+.bodyText {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.noteBlock {
+  margin: var(--space-3, 0.75rem) 0 0;
+  font-size: 0.875rem;
+}
+
+.reviewMeta {
+  margin: var(--space-2, 0.5rem) 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.subheading {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+  margin: var(--space-4, 1rem) 0 var(--space-3, 0.75rem);
+}
+
+.list,
+.findingList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+}
+
+.findingRow {
+  padding: var(--space-3, 0.75rem) 0;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.findingRow:first-child {
+  border-top: none;
+}
+
+.findingHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  flex-wrap: wrap;
+  margin-bottom: 0.375rem;
+}
+
+.confidence {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.findingStatement {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+.rowValue {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.totals {
+  margin-top: var(--space-2, 0.5rem);
+}
+
+.totalsRow,
+.totalsRowFinal {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem var(--space-2, 0.5rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.totalsRow {
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.875rem;
+}
+
+.totalsRowFinal {
+  font-weight: 650;
+  font-size: 1.0625rem;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+}
+
+.plainList {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.photoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-3, 0.75rem);
+}
+
+.photoTile {
+  margin: 0;
+}
+
+.photoImg {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+
+.photoMissing {
+  width: 100%;
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--color-surface-muted, #f3f4f6);
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.8125rem;
+}
+
+.photoCaption {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #6b7280);
+  margin-top: 0.25rem;
+}
+
+/* Print: hide the app shell chrome (header/sidebar/bottom nav) and any
+   on-page controls that make no sense on paper, scoped to only take
+   effect while this report's root element is actually in the document --
+   see components/jobs/report/ReportPrintButton.module.css for the
+   button's own print rule. Using :has() here (rather than relying on
+   Next.js to drop this stylesheet chunk on navigation) means the rule
+   simply stops matching once the report page is no longer mounted. */
+@media print {
+  body:has(#job-report-root) header,
+  body:has(#job-report-root) nav {
+    display: none !important;
+  }
+
+  .noPrint {
+    display: none !important;
+  }
+
+  .printHeader {
+    display: block;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #000;
+  }
+
+  .printTitle {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+    color: #000;
+  }
+
+  .printMeta {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: #444;
+  }
+
+  .reportRoot {
+    max-width: none;
+    background: #fff;
+    color: #000;
+  }
+
+  .section {
+    break-inside: avoid;
+  }
+
+  .photoTile {
+    break-inside: avoid;
+  }
+}

@@ -12,6 +12,7 @@ import {
   Textarea,
   Select,
   Button,
+  LinkButton,
   ErrorState,
   useToast,
 } from "@/components/ui";
@@ -26,6 +27,8 @@ import {
   DiagnosticsSection,
   type DiagnosticSessionSummary,
 } from "./DiagnosticsSection";
+import { MaterialsSection, type MaterialItem } from "./MaterialsSection";
+import { QuoteSection, type QuoteData } from "./QuoteSection";
 import styles from "./JobWorkspace.module.css";
 
 type JobStatus = "open" | "in_progress" | "completed";
@@ -55,6 +58,8 @@ export function JobWorkspace({
   diagnosticSessions,
   measurementTestTypes,
   allowedUnits,
+  materials,
+  quote,
 }: {
   orgId: string;
   job: Job;
@@ -67,6 +72,8 @@ export function JobWorkspace({
   diagnosticSessions: DiagnosticSessionSummary[];
   measurementTestTypes: readonly string[];
   allowedUnits: Record<string, readonly string[]>;
+  materials: MaterialItem[];
+  quote: QuoteData | null;
 }) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -134,16 +141,21 @@ export function JobWorkspace({
         backLabel="Jobs"
         meta={<StatusBadge status={status} />}
         actions={
-          nextStatus && (
-            <Button
-              variant="primary"
-              onClick={handleAdvanceStatus}
-              loading={advancingStatus}
-              loadingText="Updating..."
-            >
-              {nextStatus.label}
-            </Button>
-          )
+          <>
+            <LinkButton href={`/orgs/${orgId}/jobs/${job.id}/report`} variant="secondary">
+              View report
+            </LinkButton>
+            {nextStatus && (
+              <Button
+                variant="primary"
+                onClick={handleAdvanceStatus}
+                loading={advancingStatus}
+                loadingText="Updating..."
+              >
+                {nextStatus.label}
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -214,8 +226,7 @@ export function JobWorkspace({
         {/* AI Assessment: reviews the technician's chosen evidence and
             proposes observations/hypotheses for the technician to confirm
             or reject. Also manages its own requests/polling independently
-            of this form's save. A future Materials/Quote section would
-            slot in after Job details, before a closing Timeline. */}
+            of this form's save. */}
         <AssessmentSection
           orgId={orgId}
           jobId={job.id}
@@ -223,6 +234,19 @@ export function JobWorkspace({
           initialAssessments={assessments}
           maxImages={maxAssessmentImages}
         />
+
+        {/* Materials: manual-entry line items, placed directly after the
+            AI assessment/technician-review step it follows in the
+            workflow -- confirmed findings inform what materials the job
+            needs. Manages its own saves, same as the sections above. */}
+        <MaterialsSection orgId={orgId} jobId={job.id} materials={materials} />
+
+        {/* Quote: generated from this job's confirmed findings and
+            materials, then priced/edited manually. Placed last in the
+            workflow chain -- everything above it (findings, materials) is
+            an input a quote is generated from. A future Report section
+            would slot in after this one. */}
+        <QuoteSection orgId={orgId} jobId={job.id} quote={quote} />
 
         {/* Job details: administrative fields. */}
         <section className={styles.section}>

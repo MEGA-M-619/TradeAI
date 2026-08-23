@@ -22,6 +22,12 @@ import {
   type SafetyCategory,
 } from "@/lib/validation/assessment";
 import { applySafetyRules } from "@/lib/ai/safetyRules";
+import {
+  assertImageCountWithinLimit,
+  assertImageWithinLimits,
+  assertTotalWithinLimit,
+  ImagePayloadError,
+} from "@/lib/ai/imagePayload";
 import { SYSTEM_PROMPT } from "@/lib/ai/tool";
 import { AnthropicAssessmentModel } from "@/lib/ai/anthropicModel";
 import {
@@ -55,16 +61,6 @@ class ExecutorFatalError extends Error {
 
 function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-function toMediaType(mimeType: string): AssessmentImageInput["mediaType"] {
-  if (mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp") {
-    return mimeType;
-  }
-  throw new ExecutorFatalError(
-    "unknown",
-    `Evidence has an unsupported mime type for assessment: ${mimeType}`,
-  );
 }
 
 /**
@@ -126,13 +122,21 @@ export async function runQueuedAssessment(
     }
     const evidenceList = orderedEvidence as NonNullable<(typeof orderedEvidence)[number]>[];
 
-    // Step 3: fetch bytes and verify sha256 (network, outside any
-    // transaction -- see lib/storage/evidenceStorageSystem.ts for why
-    // this uses the narrow system-level read rather than a session-scoped
-    // signed URL).
+    // Step 3: fetch bytes, verify sha256, and enforce the server-side
+    // payload limits (network, outside any transaction -- see
+    // lib/storage/evidenceStorageSystem.ts for why this uses the narrow
+    // system-level read rather than a session-scoped signed URL).
+    //
+    // The count is knowable before any download, so it is checked first.
+    // This duplicates the create route's own cap deliberately: the executor
+    // reads selectedEvidenceIds back from the database and must not depend
+    // on whichever code path wrote it having been the one that validated it.
+    assertImageCountWithinLimit(evidenceList.length);
+
     const assignment = assignOrdinalRefs(evidenceList.map((e) => e.id));
     const images: AssessmentImageInput[] = [];
     const inputRows: InputSnapshotRow[] = [];
+    let totalImageBytes = 0;
 
     for (const [index, evidence] of evidenceList.entries()) {
       const bytes = await downloadEvidenceObjectAsSystem(evidence.storageKey);
@@ -143,10 +147,22 @@ export async function runQueuedAssessment(
           `Evidence ${evidence.id} failed integrity verification: stored bytes do not match the recorded hash.`,
         );
       }
+      // Size and format are judged on the bytes just fetched and hashed --
+      // never on the row's client-asserted byteSize/mimeType -- and before
+      // the base64 encoding below, since there is no reason to pay to encode
+      // a payload we have already decided not to send. mediaType comes back
+      // derived from those verified bytes, so what is announced to the model
+      // is what was actually checked. Both limits are applied inside the
+      // loop so an oversized set stops at the image that crossed the budget
+      // instead of pulling every remaining object into memory first.
+      const mediaType = assertImageWithinLimits(evidence.id, evidence.mimeType, bytes);
+      totalImageBytes += bytes.byteLength;
+      assertTotalWithinLimit(totalImageBytes);
+
       const ref = assignment[index].ordinalRef;
       images.push({
         ref,
-        mediaType: toMediaType(evidence.mimeType),
+        mediaType,
         base64: Buffer.from(bytes).toString("base64"),
       });
       inputRows.push({ evidenceId: evidence.id, ordinalRef: ref, sha256Verified: computedHash });
@@ -260,6 +276,7 @@ export async function runQueuedAssessment(
         await assessmentRepository.persistInsufficientEvidence(tx, organizationId, assessmentId, {
           insufficientReason:
             output.insufficientReason ?? "The model reported insufficient evidence.",
+          limitations: output.limitations,
           safetyWarnings,
           usage: modelResult.usage,
           stopReason: modelResult.stopReason,
@@ -270,6 +287,7 @@ export async function runQueuedAssessment(
         await assessmentRepository.persistComplete(tx, organizationId, assessmentId, {
           findings: resolvedFindings,
           questions: resolvedQuestions,
+          limitations: output.limitations,
           safetyWarnings,
           usage: modelResult.usage,
           stopReason: modelResult.stopReason,
@@ -288,11 +306,24 @@ export async function runQueuedAssessment(
     });
   } catch (err) {
     const failure = toExecutorFailure(err);
+    // Called with no findings on purpose. A failed run means the model
+    // never established anything, so the only warnings that can honestly
+    // be attached are the deterministic baseline precautions -- and
+    // because applySafetyRules only emits a category warning while
+    // iterating the findings it was given, an empty list makes an
+    // AI-derived hazard structurally unreachable here rather than merely
+    // absent by convention.
+    //
+    // The failure itself is never treated as evidence of a hazard: a
+    // model timeout or an oversized photo says nothing about the
+    // installation, and inferring one would invent a fact from an outage.
+    const safetyWarnings = applySafetyRules([]);
     await withResumedOrgContext(requestedByUserId, organizationId, async (tx) => {
       await assessmentRepository.markFailed(tx, organizationId, assessmentId, {
         category: failure.category,
         message: failure.message,
         rawResponse: failure.rawResponse,
+        safetyWarnings,
       });
       await assessmentRepository.recordUsage(
         tx,
@@ -330,6 +361,17 @@ function toExecutorFailure(err: unknown): {
       rawResponse: err.rawResponse,
       usage: err.usage,
     };
+  }
+  // Payload governance carries its own category so a request this
+  // application declined to make is never reported as a provider failure.
+  // These runs cost zero tokens -- recordUsage below writes 0/0 -- but the
+  // AiAssessment row still counts against the monthly quota exactly as
+  // every other attempt does. That stays correct without special-casing:
+  // a payload rejection is deterministic, so retrying the same photos can
+  // never be a quota-bypass vector, and quota enforcement continues to
+  // count rows rather than depending on the ledger (see lib/ai/quota.ts).
+  if (err instanceof ImagePayloadError) {
+    return { category: err.category, message: err.message };
   }
   if (err instanceof AssessmentModelError) {
     return { category: "model_error", message: err.message };

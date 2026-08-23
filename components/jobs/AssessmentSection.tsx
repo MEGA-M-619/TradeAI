@@ -4,11 +4,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Button, Badge, ErrorState, EmptyState, useToast } from "@/components/ui";
 import type { EvidenceItem } from "./EvidenceSection";
+// Type-only: lib/ai/safetyRules.ts is a pure module (no Prisma, no
+// secrets, no "server-only" boundary of its own -- see its header
+// comment), and `import type` is erased entirely at build time, so this
+// brings zero runtime code into the client bundle. What it buys is a
+// server-side change to the severity vocabulary becoming a type error
+// here instead of a silent mismatch -- the exact gap a hand-copied local
+// declaration could not catch.
+import type {
+  SafetySeverity,
+  SafetyWarning as CanonicalSafetyWarning,
+} from "@/lib/ai/safetyRules";
 import styles from "./AssessmentSection.module.css";
 
 type Confidence = "low" | "medium" | "high";
 type FindingKind = "observation" | "hypothesis";
-type SafetySeverity = "advisory" | "mandatory" | "stop_work";
 type VerdictKind = "confirmed" | "rejected" | "amended" | "unresolved";
 type AssessmentStatus = "queued" | "running" | "complete" | "insufficient_evidence" | "failed";
 
@@ -37,10 +47,18 @@ type Finding = {
   verdict: Verdict | null;
 };
 type Question = { id: string; question: string; whyItMatters: string; answersWouldRuleIn: string[] };
-type SafetyWarning = { id: string; ruleId: string; severity: SafetySeverity; message: string };
+// The persisted row carries an `id` the canonical domain type has no
+// reason to know about (it exists for the React key, not for anything
+// lib/ai/safetyRules.ts computes) -- so this extends the canonical shape
+// rather than re-declaring ruleId/severity/message a second time.
+type SafetyWarning = CanonicalSafetyWarning & { id: string };
 
 type AssessmentDetail = AssessmentSummary & {
   insufficientReason: string | null;
+  /** The model's own account of what it could not determine from the
+   * photos. Shown on every terminal success state -- a stated limitation
+   * is the thing that stops a finding from being over-trusted. */
+  limitations: string[];
   failureCategory: string | null;
   errorMessage: string | null;
   findings: Finding[];
@@ -54,6 +72,10 @@ const POLL_INTERVAL_MS = 3000;
 const FAILURE_MESSAGES: Record<string, string> = {
   quota_exceeded: "The monthly assessment limit for this organization was reached.",
   sha_mismatch: "One of the selected photos could not be verified and the assessment was stopped.",
+  payload_too_large:
+    "The selected photos are too large to assess together. Choose fewer photos, or retake them at a smaller size.",
+  unsupported_media_type:
+    "One of the selected photos is not a readable JPEG, PNG, or WebP image. Remove it and try again.",
   model_error: "The assessment service could not be reached. Try again in a moment.",
   schema_violation: "The assessment response was malformed and could not be used.",
   citation_violation: "The assessment cited evidence that was not part of this request and was discarded.",
@@ -221,6 +243,39 @@ export function AssessmentSection({
 
   const atCap = selectedEvidenceIds.length >= maxImages;
 
+  // Rendered above every terminal status, not only "complete" -- a safety
+  // warning that survives to `failed` or `insufficient_evidence` must not
+  // read as though it only matters once the model finished successfully.
+  // Defined once here, exactly like limitationsBlock below, so there is
+  // one render path rather than one copied into each status branch. Null
+  // when there is nothing to show, so an empty container never appears.
+  const safetyWarningsBlock =
+    detail && detail.safetyWarnings.length > 0 ? (
+      <div className={styles.safetyList}>
+        {detail.safetyWarnings.map((w) => (
+          <div key={w.id} className={`${styles.safetyBanner} ${styles[`severity_${w.severity}`]}`}>
+            <Badge variant={SEVERITY_VARIANT[w.severity]}>{SEVERITY_LABEL[w.severity]}</Badge>
+            <p>{w.message}</p>
+          </div>
+        ))}
+      </div>
+    ) : null;
+
+  // Rendered on both terminal success states, so it is defined once here
+  // rather than duplicated into each branch. Null when the model stated no
+  // limitations -- an empty heading is worse than no section.
+  const limitationsBlock =
+    detail && detail.limitations.length > 0 ? (
+      <div className={styles.limitations}>
+        <p className={styles.limitationsTitle}>What this assessment could not determine</p>
+        <ul className={styles.limitationsList}>
+          {detail.limitations.map((limitation, index) => (
+            <li key={index}>{limitation}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
   return (
     <section className={styles.section}>
       <div className={styles.header}>
@@ -312,6 +367,8 @@ export function AssessmentSection({
 
           {detailError && <ErrorState title="Could not load assessment" description={detailError} />}
 
+          {safetyWarningsBlock}
+
           {detail && IN_FLIGHT_STATUSES.includes(detail.status) && (
             <div className={styles.inFlight}>
               <span className={styles.spinner} aria-hidden="true" />
@@ -327,25 +384,17 @@ export function AssessmentSection({
           )}
 
           {detail?.status === "insufficient_evidence" && (
-            <div className={styles.insufficient}>
-              <p className={styles.insufficientTitle}>Not enough information in these photos</p>
-              <p>{detail.insufficientReason}</p>
-            </div>
+            <>
+              <div className={styles.insufficient}>
+                <p className={styles.insufficientTitle}>Not enough information in these photos</p>
+                <p>{detail.insufficientReason}</p>
+              </div>
+              {limitationsBlock}
+            </>
           )}
 
           {detail?.status === "complete" && (
             <div className={styles.results}>
-              {detail.safetyWarnings.length > 0 && (
-                <div className={styles.safetyList}>
-                  {detail.safetyWarnings.map((w) => (
-                    <div key={w.id} className={`${styles.safetyBanner} ${styles[`severity_${w.severity}`]}`}>
-                      <Badge variant={SEVERITY_VARIANT[w.severity]}>{SEVERITY_LABEL[w.severity]}</Badge>
-                      <p>{w.message}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {detail.findings.length === 0 && (
                 <p className={styles.noFindings}>No specific observations were recorded.</p>
               )}
@@ -422,6 +471,8 @@ export function AssessmentSection({
                   </div>
                 </div>
               ))}
+
+              {limitationsBlock}
 
               {detail.questions.length > 0 && (
                 <div className={styles.questions}>

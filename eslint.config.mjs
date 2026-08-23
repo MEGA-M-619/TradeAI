@@ -28,12 +28,13 @@ const tenantIsolationRules = [
           // unenforced for them. Backfilled along with evidence, extended
           // again for every Phase 3 AI-assessment model, again for Phase
           // 4's circuit/measurement, and now again for Phase 3A's
-          // diagnosticSession/diagnosticCandidateCause. Every new tenant
-          // table MUST be added here in the same change that adds it to
-          // schema.prisma -- do not let this list fall behind the schema
-          // again.
+          // diagnosticSession/diagnosticCandidateCause, again for
+          // Materials' material, and now again for Quote's quote/
+          // quoteLineItem. Every new tenant table MUST be added here in
+          // the same change that adds it to schema.prisma -- do not let
+          // this list fall behind the schema again.
           selector:
-            "MemberExpression[object.name='prisma'][property.name=/^(organization|user|organizationMembership|customer|job|evidence|aiAssessment|aiAssessmentInput|aiAssessmentFinding|aiAssessmentCitation|aiAssessmentTest|aiAssessmentQuestion|aiAssessmentSafetyWarning|technicianVerdict|aiUsageLedger|circuit|measurement|diagnosticSession|diagnosticCandidateCause)$/]",
+            "MemberExpression[object.name='prisma'][property.name=/^(organization|user|organizationMembership|customer|job|evidence|aiAssessment|aiAssessmentInput|aiAssessmentFinding|aiAssessmentCitation|aiAssessmentTest|aiAssessmentQuestion|aiAssessmentSafetyWarning|technicianVerdict|aiUsageLedger|circuit|measurement|diagnosticSession|diagnosticCandidateCause|material|quote|quoteLineItem)$/]",
           message:
             "Tenant-scoped Prisma models must only be accessed through lib/db/repositories/*. See lib/db/tenantContext.ts.",
         },

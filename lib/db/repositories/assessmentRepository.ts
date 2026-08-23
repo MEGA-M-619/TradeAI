@@ -50,6 +50,10 @@ export type ResolvedQuestion = {
 export type PersistCompleteInput = {
   findings: ResolvedFinding[];
   questions: ResolvedQuestion[];
+  /** Already validated by modelOutputSchema -- see the executor. Persisted
+   * on both terminal success paths because the model can (and should) state
+   * what it could not determine in either case. */
+  limitations: string[];
   safetyWarnings: SafetyWarning[];
   usage: { inputTokens: number; outputTokens: number };
   stopReason: string;
@@ -59,6 +63,7 @@ export type PersistCompleteInput = {
 
 export type PersistInsufficientInput = {
   insufficientReason: string;
+  limitations: string[];
   safetyWarnings: SafetyWarning[];
   usage: { inputTokens: number; outputTokens: number };
   stopReason: string;
@@ -70,6 +75,8 @@ export type MarkFailedInput = {
   category:
     | "quota_exceeded"
     | "sha_mismatch"
+    | "payload_too_large"
+    | "unsupported_media_type"
     | "model_error"
     | "schema_violation"
     | "citation_violation"
@@ -77,6 +84,17 @@ export type MarkFailedInput = {
     | "unknown";
   message: string;
   rawResponse?: unknown;
+  /**
+   * Required, not optional, so a caller cannot quietly persist a failed
+   * run with no safety information at all -- which is exactly what this
+   * path did before.
+   *
+   * A failed run means the model never established its findings, so these
+   * are only ever the deterministic baseline precautions
+   * (applySafetyRules([]) -- see lib/ai/safetyRules.ts). A failure is not
+   * evidence of a hazard, so no AI-derived category warning belongs here.
+   */
+  safetyWarnings: SafetyWarning[];
 };
 
 /**
@@ -207,7 +225,18 @@ export const assessmentRepository = {
           orderBy: { createdAt: "asc" },
         },
         questions: { orderBy: { createdAt: "asc" } },
-        safetyWarnings: { orderBy: { createdAt: "asc" } },
+        // severity desc, not createdAt: every warning for a run is written
+        // in one createMany batch (see persistComplete/
+        // persistInsufficientEvidence below), so rows share a statement
+        // timestamp and Postgres is free to return equal-createdAt rows in
+        // any order. Ordering by severity is also what the reader actually
+        // needs -- a stop_work banner must never render after an advisory
+        // one. Postgres compares an enum by its declared label order
+        // (SafetySeverity: advisory, mandatory, stop_work in
+        // prisma/schema.prisma), so `desc` puts stop_work first. ruleId
+        // asc is the tie-break within a severity, so ties are deterministic
+        // too rather than merely "no longer wrong".
+        safetyWarnings: { orderBy: [{ severity: "desc" }, { ruleId: "asc" }] },
       },
     });
   },
@@ -237,6 +266,7 @@ export const assessmentRepository = {
     // conflict on the last insert.
     if (!(await tryTransitionRunning(tx, orgId, assessmentId, {
       status: "complete",
+      limitations: input.limitations,
       inputTokens: input.usage.inputTokens,
       outputTokens: input.usage.outputTokens,
       latencyMs: input.latencyMs,
@@ -326,6 +356,7 @@ export const assessmentRepository = {
     if (!(await tryTransitionRunning(tx, orgId, assessmentId, {
       status: "insufficient_evidence",
       insufficientReason: input.insufficientReason,
+      limitations: input.limitations,
       inputTokens: input.usage.inputTokens,
       outputTokens: input.usage.outputTokens,
       latencyMs: input.latencyMs,
@@ -358,8 +389,9 @@ export const assessmentRepository = {
     // have the executor's own failure write clobber it -- the reaped row
     // already carries status:"failed"/category:"timeout"; overwriting it
     // with, say, category:"model_error" from a very-late-arriving error
-    // would misrepresent what actually happened.
-    await tryTransitionRunning(tx, orgId, assessmentId, {
+    // would misrepresent what actually happened and, without this guard,
+    // could re-run this insert against a row a second time.
+    if (!(await tryTransitionRunning(tx, orgId, assessmentId, {
       status: "failed",
       failureCategory: input.category,
       errorMessage: input.message,
@@ -368,6 +400,23 @@ export const assessmentRepository = {
           ? (input.rawResponse as Prisma.InputJsonValue)
           : undefined,
       completedAt: new Date(),
+    }))) {
+      return;
+    }
+
+    // Written after the guarded status change, in the same transaction,
+    // so a failed run either records both its status and its precautions
+    // or neither (the transaction as a whole still fails together on any
+    // error here). A row that says `failed` while carrying no safety
+    // information is the state this whole change exists to prevent.
+    await tx.aiAssessmentSafetyWarning.createMany({
+      data: input.safetyWarnings.map((w) => ({
+        assessmentId,
+        organizationId: orgId,
+        ruleId: w.ruleId,
+        severity: w.severity,
+        message: w.message,
+      })),
     });
   },
 

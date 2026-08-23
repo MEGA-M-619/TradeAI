@@ -5,6 +5,7 @@ import {
   ForbiddenOrgAccessError,
 } from "@/lib/auth/session";
 import { DiagnosticCauseConflictError } from "@/lib/db/repositories/diagnosticCauseRepository";
+import { QuoteAlreadyExistsError } from "@/lib/db/repositories/quoteRepository";
 
 /**
  * Shared error -> HTTP response mapping for API route handlers. Deliberately
@@ -23,6 +24,9 @@ export function handleApiError(error: unknown): NextResponse {
       { error: "cause_already_confirmed" },
       { status: 409 },
     );
+  }
+  if (error instanceof QuoteAlreadyExistsError) {
+    return NextResponse.json({ error: "quote_already_exists" }, { status: 409 });
   }
   if (error instanceof ZodError) {
     return NextResponse.json(

@@ -89,6 +89,16 @@ describe.skipIf(!dbTestsEnabled)("AI assessment tenant isolation", () => {
     // complete, with one hypothesis (citation + test + safety warning),
     // one question, a technician verdict, and a usage ledger row -- using
     // the real repository functions, the same way the application does.
+    //
+    // Deliberately several short transactions rather than one long one.
+    // Every step here is a separate round trip to a remote Supabase, and a
+    // single transaction spanning all of them runs against Prisma's 5s
+    // interactive-transaction limit purely on network latency. That is also
+    // how the application itself behaves -- lib/ai/executor.ts keeps each
+    // database step in its own short transaction on purpose -- so this
+    // fixture now matches the pattern it is standing in for. Splitting
+    // weakens nothing: each transaction re-establishes the same tenant
+    // context, so RLS is exercised on every statement either way.
     await withTenantContext({ userId: userA.id, orgId: orgA.id }, async (tx) => {
       const version = await assessmentRepository.nextVersion(tx, orgA.id, jobA.id);
       assessmentA = await assessmentRepository.createQueued(tx, orgA.id, {
@@ -105,6 +115,9 @@ describe.skipIf(!dbTestsEnabled)("AI assessment tenant isolation", () => {
       await assessmentRepository.createInputSnapshot(tx, orgA.id, assessmentA.id, [
         { evidenceId: evidenceA.id, ordinalRef: "E1", sha256Verified: "deadbeef" },
       ]);
+    });
+
+    await withTenantContext({ userId: userA.id, orgId: orgA.id }, async (tx) => {
       await assessmentRepository.persistComplete(tx, orgA.id, assessmentA.id, {
         findings: [
           {
@@ -132,6 +145,7 @@ describe.skipIf(!dbTestsEnabled)("AI assessment tenant isolation", () => {
             answersWouldRuleIn: ["Yes, multiple times this month"],
           },
         ],
+        limitations: ["The neutral bar is out of frame in every photo"],
         safetyWarnings: [
           { ruleId: "baseline_deenergize", severity: "advisory", message: "De-energize first." },
         ],
@@ -148,7 +162,9 @@ describe.skipIf(!dbTestsEnabled)("AI assessment tenant isolation", () => {
         { inputTokens: 500, outputTokens: 300 },
         true,
       );
+    });
 
+    await withTenantContext({ userId: userA.id, orgId: orgA.id }, async (tx) => {
       const full = await assessmentRepository.getFullById(tx, orgA.id, jobA.id, assessmentA.id);
       findingA = full!.findings[0];
 
@@ -222,6 +238,68 @@ describe.skipIf(!dbTestsEnabled)("AI assessment tenant isolation", () => {
       await admin.auth.admin.deleteUser(u.id);
     }
     await privileged.end();
+  });
+
+  it("Ordering: safety warnings are severity-desc then ruleId-asc, never insertion order", async () => {
+    // A second, independent assessment on the same job, deliberately not
+    // touching assessmentA (Isolation 10 below asserts it still has
+    // exactly one warning). Inserted out of both alphabetical and
+    // severity order, so a pass here rules out "happened to already be
+    // sorted" and rules out falling back to createdAt (every row in this
+    // createMany batch shares one statement timestamp).
+    const orderedAssessment = await withTenantContext(
+      { userId: userA.id, orgId: orgA.id },
+      async (tx) => {
+        const version = await assessmentRepository.nextVersion(tx, orgA.id, jobA.id);
+        const created = await assessmentRepository.createQueued(tx, orgA.id, {
+          jobId: jobA.id,
+          requestedByUserId: userA.id,
+          version,
+          selectedEvidenceIds: [evidenceA.id],
+          modelTier: "standard",
+          modelId: "claude-sonnet-5",
+          promptVersion: "test",
+          schemaVersion: "test",
+        });
+        await assessmentRepository.claimForRun(tx, orgA.id, created.id);
+        await assessmentRepository.createInputSnapshot(tx, orgA.id, created.id, [
+          { evidenceId: evidenceA.id, ordinalRef: "E1", sha256Verified: "deadbeef" },
+        ]);
+        await assessmentRepository.persistComplete(tx, orgA.id, created.id, {
+          findings: [],
+          questions: [],
+          limitations: [],
+          safetyWarnings: [
+            { ruleId: "zz_advisory", severity: "advisory", message: "z" },
+            { ruleId: "mm_stop", severity: "stop_work", message: "m" },
+            { ruleId: "aa_stop", severity: "stop_work", message: "a" },
+            { ruleId: "bb_mandatory", severity: "mandatory", message: "b" },
+          ],
+          usage: { inputTokens: 1, outputTokens: 1 },
+          stopReason: "tool_use",
+          latencyMs: 1,
+          rawResponse: { fixture: true },
+        });
+        return created;
+      },
+    );
+
+    const full = await withTenantContext({ userId: userA.id, orgId: orgA.id }, (tx) =>
+      assessmentRepository.getFullById(tx, orgA.id, jobA.id, orderedAssessment.id),
+    );
+
+    expect(full!.safetyWarnings.map((w) => w.ruleId)).toEqual([
+      "aa_stop",
+      "mm_stop",
+      "bb_mandatory",
+      "zz_advisory",
+    ]);
+    expect(full!.safetyWarnings.map((w) => w.severity)).toEqual([
+      "stop_work",
+      "stop_work",
+      "mandatory",
+      "advisory",
+    ]);
   });
 
   it("Isolation 1: org B cannot list org A's assessments", async () => {

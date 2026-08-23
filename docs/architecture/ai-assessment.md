@@ -190,6 +190,39 @@ so a response with even one bad citation never becomes a partially
 visible assessment. See `tests/security/assessment-executor.test.ts`
 ("Executor 3") for the live-database proof.
 
+### Server-side payload governance
+
+Image size and count are **not** left to the client. `prepareImageUpload.ts`
+downscales in the browser and says outright that it is not a security
+control, `evidence.byte_size`/`mime_type` are values the client asserted at
+confirm time, and the client holds a signed direct-to-storage upload URL --
+so none of those constrain what this application forwards to a third party.
+
+`lib/ai/imagePayload.ts` is that constraint. It runs in the executor's
+download loop, against the bytes actually fetched from Storage and
+immediately after the sha256 check, enforcing a per-image cap (5 MiB), a
+combined cap across the whole request (20 MiB), the 8-image cap
+(re-exported from the request schema, never redefined), and a magic-byte
+format check that must agree with the mime type recorded on the row. Both
+size caps are asserted at module load against Anthropic's documented
+ceilings (10 MB base64 per image, 32 MB per request), so raising one past
+its ceiling fails immediately rather than in production.
+
+Failures are their own categories -- `payload_too_large` and
+`unsupported_media_type` -- so a request this application declined to make
+is never reported to the technician as a provider outage.
+
+### What the model says it could not determine
+
+`modelOutputSchema` requires the model to state its own limitations, and
+those are persisted (`ai_assessment.limitations`) and shown to the
+technician on both terminal success paths, including
+`insufficient_evidence`. This is treated as safety information, not a
+footnote: a stated limitation is what stops a well-cited finding from being
+over-trusted. Like `insufficientReason`, it is model-authored text on an
+otherwise deterministic table, and it reaches the database only after
+passing the same validation as every other field.
+
 ### The deterministic safety layer
 
 `lib/ai/safetyRules.ts` is a pure function with no model involvement.

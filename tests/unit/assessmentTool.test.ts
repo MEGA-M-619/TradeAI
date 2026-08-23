@@ -179,3 +179,68 @@ describe("buildAssessmentToolSchema", () => {
     expect(() => modelOutputSchema.parse(bad)).toThrow();
   });
 });
+
+/**
+ * `limitations` is what the model says it could not determine. It has
+ * always been part of modelOutputSchema and is now persisted and shown to
+ * the technician, so these assert it goes through exactly the same
+ * validation as every other field -- persisting it must not have opened a
+ * path around the schema.
+ */
+describe("limitations", () => {
+  const base = {
+    overallStatus: "assessment_provided" as const,
+    observations: [
+      { ref: "O1", statement: "A panel is visible.", citedEvidence: ["E1"], confidence: "high", rationale: "Clearly in frame." },
+    ],
+    hypotheses: [],
+    followUpQuestions: [],
+  };
+
+  it("is required -- a response omitting it is rejected, not defaulted to empty", () => {
+    // The technician-facing consequence of defaulting instead of rejecting
+    // would be an assessment that silently claims no limitations.
+    expect(() => modelOutputSchema.parse({ ...base })).toThrow();
+  });
+
+  it("accepts an empty array (the model genuinely stated no limitations)", () => {
+    const parsed = modelOutputSchema.parse({ ...base, limitations: [] });
+    expect(parsed.limitations).toEqual([]);
+  });
+
+  it("accepts and preserves the order of stated limitations", () => {
+    const limitations = ["The neutral bar is out of frame", "The panel label is illegible"];
+    const parsed = modelOutputSchema.parse({ ...base, limitations });
+    expect(parsed.limitations).toEqual(limitations);
+  });
+
+  it("is carried on the insufficient_evidence path too, where findings must be empty", () => {
+    const parsed = modelOutputSchema.parse({
+      overallStatus: "insufficient_evidence",
+      insufficientReason: "Every photo is out of focus.",
+      observations: [],
+      hypotheses: [],
+      followUpQuestions: [],
+      limitations: ["No photo shows the inside of the panel"],
+    });
+    expect(parsed.limitations).toEqual(["No photo shows the inside of the panel"]);
+  });
+
+  it("rejects more than 10 entries", () => {
+    const limitations = Array.from({ length: 11 }, (_, i) => `limitation ${i}`);
+    expect(() => modelOutputSchema.parse({ ...base, limitations })).toThrow();
+  });
+
+  it("rejects an entry over 500 characters", () => {
+    expect(() => modelOutputSchema.parse({ ...base, limitations: ["x".repeat(501)] })).toThrow();
+  });
+
+  it("rejects an empty or whitespace-only entry", () => {
+    expect(() => modelOutputSchema.parse({ ...base, limitations: [""] })).toThrow();
+    expect(() => modelOutputSchema.parse({ ...base, limitations: ["   "] })).toThrow();
+  });
+
+  it("rejects a non-string entry", () => {
+    expect(() => modelOutputSchema.parse({ ...base, limitations: [42] })).toThrow();
+  });
+});

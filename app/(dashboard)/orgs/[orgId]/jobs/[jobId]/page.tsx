@@ -6,6 +6,8 @@ import { assessmentRepository } from "@/lib/db/repositories/assessmentRepository
 import { measurementRepository } from "@/lib/db/repositories/measurementRepository";
 import { circuitRepository } from "@/lib/db/repositories/circuitRepository";
 import { diagnosticSessionRepository } from "@/lib/db/repositories/diagnosticSessionRepository";
+import { materialRepository } from "@/lib/db/repositories/materialRepository";
+import { quoteRepository } from "@/lib/db/repositories/quoteRepository";
 import { createEvidenceDownloadUrls } from "@/lib/storage/evidenceStorage";
 import { MAX_EVIDENCE_PER_JOB } from "@/lib/validation/evidence";
 import { MAX_ASSESSMENT_IMAGES } from "@/lib/validation/assessment";
@@ -21,6 +23,8 @@ import type {
   CircuitOption,
 } from "@/components/jobs/MeasurementsSection";
 import type { DiagnosticSessionSummary } from "@/components/jobs/DiagnosticsSection";
+import type { MaterialItem } from "@/components/jobs/MaterialsSection";
+import type { QuoteData } from "@/components/jobs/QuoteSection";
 
 export default async function JobDetailPage({
   params,
@@ -28,7 +32,7 @@ export default async function JobDetailPage({
   params: Promise<{ orgId: string; jobId: string }>;
 }) {
   const { orgId, jobId } = await params;
-  const { job, evidence, assessments, measurements, circuits, sessions } =
+  const { job, evidence, assessments, measurements, circuits, sessions, materials, quote } =
     await withAuthenticatedOrgContext(orgId, async (tx, ctx) => {
       const job = await jobRepository.getById(tx, ctx.orgId, jobId);
       if (!job) {
@@ -39,6 +43,8 @@ export default async function JobDetailPage({
           measurements: [],
           circuits: [],
           sessions: [],
+          materials: [],
+          quote: null,
         };
       }
       const evidence = await evidenceRepository.listForJob(tx, ctx.orgId, jobId);
@@ -57,7 +63,9 @@ export default async function JobDetailPage({
         ctx.orgId,
         jobId,
       );
-      return { job, evidence, assessments, measurements, circuits, sessions };
+      const materials = await materialRepository.listForJob(tx, ctx.orgId, jobId);
+      const quote = await quoteRepository.getForJob(tx, ctx.orgId, jobId);
+      return { job, evidence, assessments, measurements, circuits, sessions, materials, quote };
     });
 
   if (!job) {
@@ -112,6 +120,29 @@ export default async function JobDetailPage({
     createdAt: s.createdAt.toISOString(),
   }));
 
+  const materialItems: MaterialItem[] = materials.map((m) => ({
+    id: m.id,
+    description: m.description,
+    quantity: m.quantity,
+    unitCostCents: m.unitCostCents,
+  }));
+
+  const quoteData: QuoteData | null = quote
+    ? {
+        id: quote.id,
+        subtotalCents: quote.subtotalCents,
+        totalCents: quote.totalCents,
+        lineItems: quote.lineItems.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          description: item.description,
+          quantity: item.quantity,
+          unitPriceCents: item.unitPriceCents,
+          lineTotalCents: item.lineTotalCents,
+        })),
+      }
+    : null;
+
   return (
     <JobWorkspace
       orgId={orgId}
@@ -125,6 +156,8 @@ export default async function JobDetailPage({
       diagnosticSessions={sessionSummaries}
       measurementTestTypes={MEASUREMENT_TEST_TYPES}
       allowedUnits={ALLOWED_UNITS_BY_TEST_TYPE}
+      materials={materialItems}
+      quote={quoteData}
     />
   );
 }

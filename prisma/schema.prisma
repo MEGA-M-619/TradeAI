@@ -8,6 +8,10 @@
 // foundation -- see docs/architecture/ai-assessment.md and the approved
 // Intelligence Layer architecture analysis for how this and later phases
 // fit together).
+// Materials adds: manual-entry job material line items (quantity, unit
+// cost) -- the first step past confirmed findings toward a quote.
+// Quote adds: one current quote per job, generated from confirmed
+// findings and materials, plus manually-added labor line items.
 // Every other domain table is added in later phases per the approved
 // architecture.
 
@@ -50,6 +54,9 @@ model Organization {
   measurements              Measurement[]
   diagnosticSessions        DiagnosticSession[]
   diagnosticCandidateCauses DiagnosticCandidateCause[]
+  materials                 Material[]
+  quotes                    Quote[]
+  quoteLineItems            QuoteLineItem[]
 
   @@map("organizations")
 }
@@ -76,6 +83,8 @@ model User {
   measurementsRecorded      Measurement[]              @relation("MeasurementRecordedBy")
   diagnosticSessionsCreated DiagnosticSession[]        @relation("DiagnosticSessionCreatedBy")
   diagnosticCausesCreated   DiagnosticCandidateCause[] @relation("DiagnosticCandidateCauseCreatedBy")
+  materialsCreated          Material[]
+  quotesCreated             Quote[]
 
   @@map("users")
 }
@@ -150,6 +159,8 @@ model Job {
   assessments        AiAssessment[]
   measurements       Measurement[]
   diagnosticSessions DiagnosticSession[]
+  materials          Material[]
+  quote              Quote?
 
   @@index([organizationId])
   @@index([customerId])
@@ -782,4 +793,133 @@ model DiagnosticCandidateCause {
   @@index([organizationId])
   @@index([diagnosticSessionId])
   @@map("diagnostic_candidate_causes")
+}
+
+// ---------------------------------------------------------------------------
+// Materials: manual-entry job material line items.
+//
+// DETERMINISTIC, technician-recorded only -- there is no model-authored
+// content here, the same category as Measurement and TechnicianVerdict.
+// `source` is carried as an enum with a single value today rather than a
+// plain default so a later catalog/supplier-integration source is an
+// additive enum variant, not a column rename.
+//
+// unitCostCents is integer cents, not a decimal/float price: money stored
+// as a float accumulates rounding error the moment a quote sums these
+// rows, and Postgres has no fixed-point type simpler to reason about than
+// "the smallest unit, as an integer."
+
+enum MaterialSource {
+  manual
+
+  @@map("material_source")
+}
+
+/// A single material line item against a job, entered by a technician
+/// after reviewing confirmed findings. Hard-deletable (unlike Evidence):
+/// nothing else in the schema cites a Material by id, so there is no
+/// dangling-reference case a tombstone would need to explain.
+model Material {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String         @map("organization_id") @db.Uuid
+  jobId           String         @map("job_id") @db.Uuid
+  createdByUserId String         @map("created_by_user_id") @db.Uuid
+  description     String
+  quantity        Float
+  unitCostCents   Int            @map("unit_cost_cents")
+  source          MaterialSource @default(manual)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdBy    User            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  quoteLines   QuoteLineItem[]
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@map("materials")
+}
+
+// ---------------------------------------------------------------------------
+// Quote: one current quote per job.
+//
+// DETERMINISTIC, technician-recorded/system-computed only -- there is no
+// model-authored content here. jobId is unique, so a job can never have
+// more than one Quote row; this phase has no versioning/history, and
+// regenerating an existing quote is refused by quoteRepository rather
+// than silently discarding a technician's edits (see the doc comment on
+// QuoteAlreadyExistsError).
+//
+// subtotalCents/totalCents are stored, not computed on every read, but
+// are never client-supplied: quoteRepository recomputes both from the
+// persisted line items inside the same transaction as every mutation and
+// overwrites them there. totalCents duplicates subtotalCents today (no
+// tax/discount exists in this schema) but is a real, separately-stored
+// column so a future tax/discount phase is an additive computation, not a
+// schema change.
+
+enum QuoteLineItemKind {
+  material
+  labor
+
+  @@map("quote_line_item_kind")
+}
+
+model Quote {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  jobId           String   @unique @map("job_id") @db.Uuid
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  subtotalCents   Int      @default(0) @map("subtotal_cents")
+  totalCents      Int      @default(0) @map("total_cents")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdBy    User            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  lineItems    QuoteLineItem[]
+
+  @@index([organizationId])
+  @@map("quotes")
+}
+
+/// A single billable line on a quote. `kind` records provenance --
+/// `material` lines are only ever created by quoteRepository.generate,
+/// snapshotted from the job's current Materials; `labor` is the only kind
+/// a technician can add directly through the API (see the route). Both
+/// kinds are equally editable/deletable afterward -- kind is where a row
+/// came from, not a restriction on what can be done to it later.
+///
+/// description/quantity/unitPriceCents are a snapshot taken when the line
+/// was created, deliberately independent of the source Material from then
+/// on -- editing a Material later must never silently rewrite a quote a
+/// technician already reviewed. sourceMaterialId is provenance only
+/// (nullable, SetNull on delete): nothing reads it back to recompute
+/// anything.
+///
+/// lineTotalCents is never client-supplied -- quoteRepository computes it
+/// server-side from quantity * unitPriceCents, rounded once to the
+/// nearest cent, on every create/update.
+model QuoteLineItem {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String            @map("organization_id") @db.Uuid
+  quoteId          String            @map("quote_id") @db.Uuid
+  kind             QuoteLineItemKind
+  description      String
+  quantity         Float
+  unitPriceCents   Int               @map("unit_price_cents")
+  lineTotalCents   Int               @map("line_total_cents")
+  sourceMaterialId String?           @map("source_material_id") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  quote          Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  sourceMaterial Material?    @relation(fields: [sourceMaterialId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([quoteId])
+  @@map("quote_line_items")
 }

@@ -301,6 +301,33 @@
   flex-wrap: wrap;
 }
 
+/* The model's own statement of what it could not determine from the
+   photos it was given. Deliberately styled as a caveat rather than a
+   finding: it qualifies everything above it, so it sits apart from the
+   findings list instead of reading as one more observation. Matches
+   .questions -- both are "what is still unknown" sections. */
+.limitations {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.limitationsTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-2);
+}
+
+.limitationsList {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.limitationsList li + li {
+  margin-top: var(--space-1);
+}
+
 .questions {
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-border);
