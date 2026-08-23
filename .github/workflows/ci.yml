@@ -25,6 +25,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run db:generate
+      - run: npx next typegen
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
