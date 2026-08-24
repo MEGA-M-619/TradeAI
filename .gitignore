@@ -53,3 +53,6 @@ next-env.d.ts
 
 # claude code session runtime state (machine-specific pid/session id)
 /.claude/scheduled_tasks.lock
+
+.vercel
+.env*
