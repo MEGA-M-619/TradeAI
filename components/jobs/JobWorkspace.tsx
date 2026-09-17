@@ -27,6 +27,7 @@ import {
   DiagnosticsSection,
   type DiagnosticSessionSummary,
 } from "./DiagnosticsSection";
+import { CalculatorSection } from "./CalculatorSection";
 import { MaterialsSection, type MaterialItem } from "./MaterialsSection";
 import { QuoteSection, type QuoteData } from "./QuoteSection";
 import styles from "./JobWorkspace.module.css";
@@ -210,6 +211,11 @@ export function JobWorkspace({
           testTypes={measurementTestTypes}
           allowedUnits={allowedUnits}
         />
+
+        {/* Scratch Ohm's-law / power calculator. Sits next to the readings
+            it is used with, but writes nothing: a derived value is not a
+            measurement, and only instrument readings belong above. */}
+        <CalculatorSection />
 
         {/* Diagnosis and safety. Placed directly after the readings it
             reasons over, and before the AI assessment, because the
